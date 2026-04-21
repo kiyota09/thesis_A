@@ -368,6 +368,8 @@ Route::prefix('dashboard/scm')->name('scm.')->middleware(['auth', 'verified', 'm
     // Procurement Orders (requests from Inventory)
     Route::get('/procurement-orders', [ScmProcurementOrderController::class, 'index'])->name('procurement-orders');
     Route::post('/procurement-orders/{materialRequest}/send', [ScmProcurementOrderController::class, 'sendToProcurementModule'])->name('procurement-order.send');
+    Route::post('/scm/procurement-order/send-bundle', [ScmProcurementOrderController::class, 'sendBundle'])
+    ->name('scm.procurement-order.send-bundle');
 
     // Vendor Management
     Route::get('/vendors', [ScmVendorController::class, 'index'])->name('vendors');
