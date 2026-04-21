@@ -29,6 +29,7 @@ import {
     ChevronUp,
     BookPlus,
     Edit,
+    AlertTriangle,
 } from "lucide-vue-next";
 
 const props = defineProps({
@@ -44,7 +45,7 @@ const props = defineProps({
 console.log(props.applicants);
 
 // Check if user can edit applications (add/accept/reject)
-const canEdit = computed(() => props.permissions?.applications === 'edit');
+const canEdit = computed(() => props.permissions?.applications === "edit");
 
 // Toast notification
 const showToast = ref(false);
@@ -94,6 +95,21 @@ const isAddModalOpen = ref(false);
 const selectedApplicant = ref(null);
 const selectedModule = ref("");
 const rejectionReason = ref("");
+
+// ─── CONFIRMATION MODAL ───────────────────────────────────────────────────────
+const isConfirmModalOpen = ref(false);
+
+const openConfirmModal = () => {
+    // Run all validations first before opening confirmation
+    if (!runAllValidations()) return;
+    isConfirmModalOpen.value = true;
+};
+
+const confirmAndSubmit = () => {
+    isConfirmModalOpen.value = false;
+    submitApplicantForm();
+};
+// ─────────────────────────────────────────────────────────────────────────────
 
 // --- NEW POSITIONS MODAL STATE ---
 const isPositionModalOpen = ref(false);
@@ -198,6 +214,198 @@ const addForm = useForm({
     number_of_children: 0,
 });
 
+// ─── PER-FIELD INLINE VALIDATION ERRORS ──────────────────────────────────────
+const fieldErrors = ref({});
+
+const setFieldError = (field, msg) => {
+    fieldErrors.value[field] = msg;
+};
+const clearFieldError = (field) => {
+    fieldErrors.value[field] = "";
+};
+
+// Validate individual fields on blur/change and return true if valid
+const validateFirstName = () => {
+    if (!addForm.first_name.trim()) {
+        setFieldError("first_name", "First name is required.");
+        return false;
+    }
+    if (!/^[a-zA-Z\sñÑ-]+$/.test(addForm.first_name)) {
+        setFieldError(
+            "first_name",
+            "Only letters, spaces, and hyphens allowed.",
+        );
+        return false;
+    }
+    clearFieldError("first_name");
+    return true;
+};
+const validateLastName = () => {
+    if (!addForm.last_name.trim()) {
+        setFieldError("last_name", "Last name is required.");
+        return false;
+    }
+    if (!/^[a-zA-Z\sñÑ-]+$/.test(addForm.last_name)) {
+        setFieldError(
+            "last_name",
+            "Only letters, spaces, and hyphens allowed.",
+        );
+        return false;
+    }
+    clearFieldError("last_name");
+    return true;
+};
+const validateEmail = () => {
+    if (!addForm.email.trim()) {
+        setFieldError("email", "Email address is required.");
+        return false;
+    }
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(addForm.email)) {
+        setFieldError("email", "Please enter a valid email address.");
+        return false;
+    }
+    clearFieldError("email");
+    return true;
+};
+// ✅ FIXED: 11 digits for PH phone number
+const validatePhone = () => {
+    const digits = addForm.phone_raw.replace(/\D/g, "");
+    if (!digits) {
+        setFieldError("phone_raw", "Phone number is required.");
+        return false;
+    }
+    if (digits.length !== 11) {
+        setFieldError(
+            "phone_raw",
+            "Phone number must be exactly 11 digits (e.g. 09123456789).",
+        );
+        return false;
+    }
+    if (!/^\d{11}$/.test(digits)) {
+        setFieldError("phone_raw", "Phone number must contain only digits.");
+        return false;
+    }
+    clearFieldError("phone_raw");
+    return true;
+};
+const validatePosition = () => {
+    if (!addForm.position_applied) {
+        setFieldError(
+            "position_applied",
+            "Please select the position applied for.",
+        );
+        return false;
+    }
+    clearFieldError("position_applied");
+    return true;
+};
+const validateStreetAddress = () => {
+    if (!addForm.street_address.trim()) {
+        setFieldError("street_address", "Street address is required.");
+        return false;
+    }
+    clearFieldError("street_address");
+    return true;
+};
+const validateCity = () => {
+    if (!addForm.city.trim()) {
+        setFieldError("city", "City/Municipality is required.");
+        return false;
+    }
+    clearFieldError("city");
+    return true;
+};
+const validateStateProvince = () => {
+    if (!addForm.state_province.trim()) {
+        setFieldError("state_province", "State/Province is required.");
+        return false;
+    }
+    clearFieldError("state_province");
+    return true;
+};
+const validatePostalCode = () => {
+    if (!addForm.postal_zip_code) {
+        setFieldError("postal_zip_code", "Postal/Zip code is required.");
+        return false;
+    }
+    if (addForm.postal_zip_code.length !== 4) {
+        setFieldError("postal_zip_code", "Must be exactly 4 digits.");
+        return false;
+    }
+    clearFieldError("postal_zip_code");
+    return true;
+};
+const validateDateOfBirth = () => {
+    if (!addForm.date_of_birth) {
+        clearFieldError("date_of_birth");
+        return true;
+    } // optional
+    if (!isOldEnough(addForm.date_of_birth)) {
+        setFieldError("date_of_birth", "Applicant must be 18 years or older.");
+        return false;
+    }
+    clearFieldError("date_of_birth");
+    return true;
+};
+const validateWeight = () => {
+    if (!addForm.weight) {
+        clearFieldError("weight");
+        return true;
+    } // optional
+    const w = parseFloat(addForm.weight);
+    if (w < 30 || w > 200) {
+        setFieldError("weight", "Valid weight is 30kg–200kg.");
+        return false;
+    }
+    clearFieldError("weight");
+    return true;
+};
+const validateHeight = () => {
+    if (!addForm.height) {
+        clearFieldError("height");
+        return true;
+    } // optional
+    const h = parseFloat(addForm.height);
+    if (h < 100 || h > 250) {
+        setFieldError("height", "Valid height is 100cm–250cm.");
+        return false;
+    }
+    clearFieldError("height");
+    return true;
+};
+
+// Run all validations, return true only if all pass
+const runAllValidations = () => {
+    const results = [
+        validateFirstName(),
+        validateLastName(),
+        validateEmail(),
+        validatePhone(),
+        validatePosition(),
+        validateStreetAddress(),
+        validateCity(),
+        validateStateProvince(),
+        validatePostalCode(),
+        validateDateOfBirth(),
+        validateWeight(),
+        validateHeight(),
+    ];
+    // Scroll to first error
+    if (results.includes(false)) {
+        const firstError = document.querySelector("[data-field-error]");
+        if (firstError)
+            firstError.scrollIntoView({ behavior: "smooth", block: "center" });
+        triggerToast(
+            "Please fix the highlighted errors before submitting.",
+            "error",
+        );
+        return false;
+    }
+    return true;
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Dynamic arrays for children and employment records in add modal
 const childrenList = ref([]);
 const employmentList = ref([]);
@@ -251,7 +459,10 @@ const openViewModal = (applicant) => {
 
 const openAcceptModal = (applicant) => {
     if (!canEdit.value) {
-        triggerToast("You do not have permission to accept applications.", 'error');
+        triggerToast(
+            "You do not have permission to accept applications.",
+            "error",
+        );
         return;
     }
     selectedApplicant.value = applicant;
@@ -261,7 +472,10 @@ const openAcceptModal = (applicant) => {
 
 const openRejectModal = (applicant) => {
     if (!canEdit.value) {
-        triggerToast("You do not have permission to reject applications.", 'error');
+        triggerToast(
+            "You do not have permission to reject applications.",
+            "error",
+        );
         return;
     }
     selectedApplicant.value = applicant;
@@ -271,10 +485,11 @@ const openRejectModal = (applicant) => {
 
 const openAddModal = () => {
     if (!canEdit.value) {
-        triggerToast("You do not have permission to add applicants.", 'error');
+        triggerToast("You do not have permission to add applicants.", "error");
         return;
     }
     addForm.reset();
+    fieldErrors.value = {};
     childrenList.value = [];
     employmentList.value = [];
     showEmploymentSection.value = false;
@@ -284,7 +499,10 @@ const openAddModal = () => {
 // --- NEW POSITIONS MODAL METHODS ---
 const openAddPositionModal = async () => {
     if (!canEdit.value) {
-        triggerToast("You do not have permission to manage positions.", 'error');
+        triggerToast(
+            "You do not have permission to manage positions.",
+            "error",
+        );
         return;
     }
     isPositionModalOpen.value = true;
@@ -296,11 +514,10 @@ const closePositionModal = () => {
     newPositionTitle.value = "";
 };
 
-// 1. Fetch data (GET requests don't need CSRF tokens)
 const fetchPositions = async () => {
     isLoadingPositions.value = true;
     try {
-        const response = await fetch('/dashboard/hrm/positions');
+        const response = await fetch("/dashboard/hrm/positions");
         if (!response.ok) throw new Error("Network response was not ok");
         const data = await response.json();
         positions.value = data;
@@ -315,24 +532,29 @@ const fetchPositions = async () => {
 const submitPosition = () => {
     if (!newPositionTitle.value.trim()) return;
 
-    router.post(route('hrm.positions.store'), {
-        position: newPositionTitle.value
-    }, {
-        preserveState: true,
-        preserveScroll: true,
-        onSuccess: () => {
-            triggerToast("Position added successfully.");
-            newPositionTitle.value = '';
-            fetchPositions();
+    router.post(
+        route("hrm.positions.store"),
+        {
+            position: newPositionTitle.value,
         },
-        onError: (errors) => {
-            const errorMsg = Object.values(errors)[0] || 'Submission failed. Please check your inputs.';
-            triggerToast(errorMsg);
-        }
-    });
+        {
+            preserveState: true,
+            preserveScroll: true,
+            onSuccess: () => {
+                triggerToast("Position added successfully.");
+                newPositionTitle.value = "";
+                fetchPositions();
+            },
+            onError: (errors) => {
+                const errorMsg =
+                    Object.values(errors)[0] ||
+                    "Submission failed. Please check your inputs.";
+                triggerToast(errorMsg);
+            },
+        },
+    );
 };
 
-// Edit position
 const openEditPositionModal = (position) => {
     editingPosition.value = position;
     editPositionTitle.value = position.position;
@@ -342,40 +564,48 @@ const openEditPositionModal = (position) => {
 const updatePosition = () => {
     if (!editPositionTitle.value.trim()) return;
 
-    router.patch(route('hrm.positions.update', editingPosition.value.id), {
-        position: editPositionTitle.value
-    }, {
-        preserveState: true,
-        preserveScroll: true,
-        onSuccess: () => {
-            triggerToast("Position updated successfully.");
-            isEditPositionModalOpen.value = false;
-            editingPosition.value = null;
-            editPositionTitle.value = "";
-            fetchPositions();
+    router.patch(
+        route("hrm.positions.update", editingPosition.value.id),
+        {
+            position: editPositionTitle.value,
         },
-        onError: (errors) => {
-            const errorMsg = Object.values(errors)[0] || 'Update failed.';
-            triggerToast(errorMsg);
-        }
-    });
+        {
+            preserveState: true,
+            preserveScroll: true,
+            onSuccess: () => {
+                triggerToast("Position updated successfully.");
+                isEditPositionModalOpen.value = false;
+                editingPosition.value = null;
+                editPositionTitle.value = "";
+                fetchPositions();
+            },
+            onError: (errors) => {
+                const errorMsg = Object.values(errors)[0] || "Update failed.";
+                triggerToast(errorMsg);
+            },
+        },
+    );
 };
 
-// Toggle status
 const togglePositionStatus = async (position) => {
     const newStatus = position.status === "active" ? "inactive" : "active";
 
     try {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-        const response = await fetch(`/dashboard/hrm/positions/${position.id}/toggle-status`, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-CSRF-TOKEN': csrfToken
+        const csrfToken = document.querySelector(
+            'meta[name="csrf-token"]',
+        ).content;
+        const response = await fetch(
+            `/dashboard/hrm/positions/${position.id}/toggle-status`,
+            {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                    Accept: "application/json",
+                    "X-CSRF-TOKEN": csrfToken,
+                },
+                body: JSON.stringify({ status: newStatus }),
             },
-            body: JSON.stringify({ status: newStatus }),
-        });
+        );
 
         if (response.ok) {
             const data = await response.json();
@@ -397,17 +627,18 @@ const toggleStatus = async (id) => {
     await togglePositionStatus(position);
 };
 
-// Delete Position
 const deletePosition = async (id) => {
     if (!confirm("Are you sure you want to delete this position?")) return;
 
     try {
-        const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+        const csrfToken = document.querySelector(
+            'meta[name="csrf-token"]',
+        ).content;
         const response = await fetch(`/dashboard/hrm/positions/${id}`, {
             method: "DELETE",
             headers: {
-                "Accept": "application/json",
-                "X-CSRF-TOKEN": csrfToken
+                Accept: "application/json",
+                "X-CSRF-TOKEN": csrfToken,
             },
         });
 
@@ -421,12 +652,9 @@ const deletePosition = async (id) => {
     }
 };
 
-// Active positions for dropdown
 const activePositions = computed(() => {
-    return positions.value.filter(pos => pos.status === 'active');
+    return positions.value.filter((pos) => pos.status === "active");
 });
-
-// -------------------------------------------------
 
 // Form submissions
 const acceptApplicant = () => {
@@ -436,9 +664,7 @@ const acceptApplicant = () => {
     }
     router.post(
         route("hrm.applications.accept", selectedApplicant.value.id),
-        {
-            module: selectedModule.value,
-        },
+        { module: selectedModule.value },
         {
             preserveScroll: true,
             onSuccess: () => {
@@ -462,9 +688,7 @@ const rejectApplicant = () => {
     }
     router.post(
         route("hrm.applications.reject", selectedApplicant.value.id),
-        {
-            reason: rejectionReason.value,
-        },
+        { reason: rejectionReason.value },
         {
             preserveScroll: true,
             onSuccess: () => {
@@ -587,13 +811,23 @@ watch(
     },
 );
 
+// ✅ FIXED: 11 digits max for PH phone
 watch(
     () => addForm.phone_raw,
     (val) => {
-        const filtered = val.replace(/\D/g, "").substring(0, 12);
+        const filtered = val.replace(/\D/g, "").substring(0, 11);
         if (val !== filtered) {
             addForm.phone_raw = filtered;
-            triggerWarning("phone_raw", "Numbers only.");
+            triggerWarning("phone_raw", "Numbers only (max 11 digits).");
+        }
+        // Live counter feedback
+        if (filtered.length > 0 && filtered.length < 11) {
+            setFieldError(
+                "phone_raw",
+                `${11 - filtered.length} more digit(s) needed.`,
+            );
+        } else if (filtered.length === 11) {
+            clearFieldError("phone_raw");
         }
     },
 );
@@ -623,76 +857,8 @@ const removeFile = (field) => {
     addForm[field] = null;
 };
 
-// Submit Form
-const addApplicant = () => {
-    if (
-        !/^[a-zA-Z\sñÑ-]+$/.test(addForm.first_name) ||
-        !/^[a-zA-Z\sñÑ-]+$/.test(addForm.last_name)
-    ) {
-        triggerToast("First Name and Last Name must only contain letters.", 'error');
-        return;
-    }
-
-     // Weight Validation Rules bagong add yah
-            const weightVal = parseFloat(addForm.weight);
-    
-            if (addForm. weight && (weightVal < 30 || weightVal > 200)) {
-    
-              triggerToast('Please enter a valid weight (30kg - 200kg).', 'error');
-                return;
-            }
-    
-            // Height Validation Rules (Optional but recommended)
-            const heightVal = parseFloat(addForm.height);
-            if (addForm.height && (heightVal < 100 || heightVal > 250)) {
-             triggerToast('Please enter a valid height (100cm - 250cm).', 'error');
-                return;
-            }
-    
-        if (!isOldEnough(addForm.date_of_birth)) {
-             triggerToast(' Applicants must be 18 years or older.', 'error');
-            return; 
-        }
-    
-
-    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!emailRegex.test(addForm.email)) {
-        triggerToast("Please enter a valid email address.", 'error');
-        return;
-    }
-
-    if (
-        addForm.phone_raw.length !== 12 ||
-        !/^\d{12}$/.test(addForm.phone_raw)
-    ) {
-        triggerToast("Phone number must be exactly 12 digits.", 'error');
-        return;
-    }
-
-    if (!addForm.position_applied) {
-        triggerToast("Please select the position applied for.", 'error');
-        return;
-    }
-
-    const street = addForm.street_address?.trim() || "";
-    const city = addForm.city?.trim() || "";
-    const state = addForm.state_province?.trim() || "";
-    if (!street || !city || !state) {
-        let missing = [];
-        if (!street) missing.push("Street Address");
-        if (!city) missing.push("City");
-        if (!state) missing.push("State/Province");
-        triggerToast(
-            `Complete residential details are required. Missing: ${missing.join(", ")}`,
-        );
-        return;
-    }
-
-    if (addForm.postal_zip_code.length !== 4) {
-        triggerToast("Postal/Zip code must be exactly 4 digits.");
-        return;
-    }
-
+// ─── THE ACTUAL SUBMIT (called after confirmation) ────────────────────────────
+const submitApplicantForm = () => {
     addForm.children = childrenList.value;
     addForm.employment_records = employmentList.value;
     addForm.has_employment_record = showEmploymentSection.value;
@@ -701,6 +867,7 @@ const addApplicant = () => {
     if (addForm.weight) addForm.weight = parseFloat(addForm.weight);
     if (addForm.height) addForm.height = parseFloat(addForm.height);
 
+    // ✅ FIXED: 11-digit phone concatenation
     addForm.phone_number = `${addForm.phone_country}${addForm.phone_raw}`;
 
     addForm.post(route("hrm.applications.store"), {
@@ -713,13 +880,20 @@ const addApplicant = () => {
             const msg =
                 Object.values(errors)[0] ||
                 "Failed to add applicant. Please check inputs.";
-            triggerToast(msg);
+            triggerToast(msg, "error");
         },
     });
 };
 
+// ─── FORM SUBMIT HANDLER (triggers confirmation modal) ───────────────────────
+const addApplicant = () => {
+    openConfirmModal();
+};
+
 const enforceNumbersOnly = (event) => {
-    const cleanedValue = event.target.value.replace(/[^0-9]/g, "");
+    const cleanedValue = event.target.value
+        .replace(/[^0-9]/g, "")
+        .substring(0, 11); // ✅ 11 digits
     event.target.value = cleanedValue;
     addForm.phone_raw = cleanedValue;
 };
@@ -741,7 +915,6 @@ const blockInvalidSalaryKeys = (event) => {
 onMounted(() => {
     fetchPositions();
 });
-
 </script>
 
 <template>
@@ -751,20 +924,21 @@ onMounted(() => {
         <Transition name="toast">
             <div
                 v-if="showToast"
-            :class="[
-            toastType === 'error' 
-                ? 'bg-red-600 border-red-500 text-white' 
-                : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-white/10',
-                'fixed top-6 right-6 z-[100] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border'
-
-               ]"
-                >
-                <XCircle v-if="toastType === 'error'" class="h-5 w-5 text-white" />
-        
-                    <CheckCircle 
-                        v-else 
-                        class="h-5 w-5 text-emerald-400 dark:text-emerald-600" 
-                    />
+                :class="[
+                    toastType === 'error'
+                        ? 'bg-red-600 border-red-500 text-white'
+                        : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-white/10',
+                    'fixed top-6 right-6 z-[100] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl border',
+                ]"
+            >
+                <XCircle
+                    v-if="toastType === 'error'"
+                    class="h-5 w-5 text-white"
+                />
+                <CheckCircle
+                    v-else
+                    class="h-5 w-5 text-emerald-400 dark:text-emerald-600"
+                />
                 <p class="text-sm font-bold uppercase tracking-tight">
                     {{ toastMessage }}
                 </p>
@@ -892,9 +1066,9 @@ onMounted(() => {
                                                 alt="Profile"
                                                 class="h-full w-full object-cover"
                                             />
-                                            <span v-else>
-                                                {{ getInitials(applicant.name) }}
-                                            </span>
+                                            <span v-else>{{
+                                                getInitials(applicant.name)
+                                            }}</span>
                                         </div>
                                         <div>
                                             <p
@@ -964,7 +1138,7 @@ onMounted(() => {
             </div>
         </div>
 
-        <!-- View Applicant Modal -->
+        <!-- ─── View Applicant Modal ──────────────────────────────────────────── -->
         <div
             v-if="isViewModalOpen"
             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md"
@@ -1012,15 +1186,13 @@ onMounted(() => {
                                         <span
                                             v-else
                                             class="text-slate-500 font-bold text-xl"
-                                        >
-                                            {{
+                                            >{{
                                                 getInitials(
                                                     selectedApplicant?.name,
                                                 )
-                                            }}
-                                        </span>
+                                            }}</span
+                                        >
                                     </div>
-
                                     <div>
                                         <p
                                             class="text-[10px] font-bold text-slate-400"
@@ -1036,7 +1208,6 @@ onMounted(() => {
                                         </p>
                                     </div>
                                 </div>
-
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
                                         <p
@@ -1089,7 +1260,6 @@ onMounted(() => {
                                 </div>
                             </div>
                         </div>
-
                         <div>
                             <h3
                                 class="text-xs font-black text-emerald-600 uppercase tracking-widest mb-3"
@@ -1251,7 +1421,11 @@ onMounted(() => {
                                 <div class="grid grid-cols-3 gap-2 mt-2">
                                     <div v-if="selectedApplicant.sss_file_url">
                                         <button
-                                            @click="openImageViewer(selectedApplicant.sss_file_url)"
+                                            @click="
+                                                openImageViewer(
+                                                    selectedApplicant.sss_file_url,
+                                                )
+                                            "
                                             class="text-blue-600 text-xs underline hover:no-underline"
                                         >
                                             SSS ID
@@ -1263,7 +1437,11 @@ onMounted(() => {
                                         "
                                     >
                                         <button
-                                            @click="openImageViewer(selectedApplicant.philhealth_file_url)"
+                                            @click="
+                                                openImageViewer(
+                                                    selectedApplicant.philhealth_file_url,
+                                                )
+                                            "
                                             class="text-blue-600 text-xs underline hover:no-underline"
                                         >
                                             PhilHealth ID
@@ -1275,7 +1453,11 @@ onMounted(() => {
                                         "
                                     >
                                         <button
-                                            @click="openImageViewer(selectedApplicant.pagibig_file_url)"
+                                            @click="
+                                                openImageViewer(
+                                                    selectedApplicant.pagibig_file_url,
+                                                )
+                                            "
                                             class="text-blue-600 text-xs underline hover:no-underline"
                                         >
                                             Pag-IBIG ID
@@ -1407,7 +1589,9 @@ onMounted(() => {
                                         {{
                                             selectedApplicant.elementary_school
                                         }}
-                                        ({{ selectedApplicant.elementary_year }})
+                                        ({{
+                                            selectedApplicant.elementary_year
+                                        }})
                                     </p>
                                 </div>
                                 <div>
@@ -1417,7 +1601,9 @@ onMounted(() => {
                                         High School
                                     </p>
                                     <p class="text-sm">
-                                        {{ selectedApplicant.high_school }} ({{ selectedApplicant.high_year }})
+                                        {{ selectedApplicant.high_school }} ({{
+                                            selectedApplicant.high_year
+                                        }})
                                     </p>
                                 </div>
                                 <div>
@@ -1427,7 +1613,9 @@ onMounted(() => {
                                         College
                                     </p>
                                     <p class="text-sm">
-                                        {{ selectedApplicant.college }} ({{ selectedApplicant.college_year }})
+                                        {{ selectedApplicant.college }} ({{
+                                            selectedApplicant.college_year
+                                        }})
                                     </p>
                                 </div>
                                 <div>
@@ -1437,7 +1625,9 @@ onMounted(() => {
                                         Vocational
                                     </p>
                                     <p class="text-sm">
-                                        {{ selectedApplicant.vocational }} ({{ selectedApplicant.vocational_year }})
+                                        {{ selectedApplicant.vocational }} ({{
+                                            selectedApplicant.vocational_year
+                                        }})
                                     </p>
                                 </div>
                             </div>
@@ -1446,7 +1636,10 @@ onMounted(() => {
                                     Special Skills
                                 </p>
                                 <p class="text-sm">
-                                    {{ selectedApplicant.special_skills || "N/A" }}
+                                    {{
+                                        selectedApplicant.special_skills ||
+                                        "N/A"
+                                    }}
                                 </p>
                             </div>
                         </div>
@@ -1501,7 +1694,7 @@ onMounted(() => {
             </div>
         </div>
 
-        <!-- Accept Modal -->
+        <!-- ─── Accept Modal ──────────────────────────────────────────────────── -->
         <div
             v-if="isAcceptModalOpen"
             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md"
@@ -1557,7 +1750,7 @@ onMounted(() => {
             </div>
         </div>
 
-        <!-- Reject Modal -->
+        <!-- ─── Reject Modal ──────────────────────────────────────────────────── -->
         <div
             v-if="isRejectModalOpen"
             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md"
@@ -1606,7 +1799,7 @@ onMounted(() => {
             </div>
         </div>
 
-        <!-- Add Applicant Modal -->
+        <!-- ─── Add Applicant Modal ───────────────────────────────────────────── -->
         <div
             v-if="isAddModalOpen"
             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md"
@@ -1641,6 +1834,7 @@ onMounted(() => {
                                 </h3>
                             </div>
 
+                            <!-- Profile Photo -->
                             <div>
                                 <InputLabel
                                     for="image"
@@ -1693,16 +1887,22 @@ onMounted(() => {
                                 />
                             </div>
 
-                            <div>
+                            <!-- First Name -->
+                            <div data-field-error>
                                 <InputLabel
                                     for="first_name"
-                                    value="First Name"
+                                    value="First Name *"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
                                 />
                                 <TextInput
                                     id="first_name"
                                     type="text"
-                                    class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
+                                    :class="[
+                                        'mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none',
+                                        fieldErrors.first_name
+                                            ? 'ring-2 ring-red-500'
+                                            : 'ring-1 ring-slate-200 dark:ring-slate-700',
+                                    ]"
                                     v-model="addForm.first_name"
                                     required
                                     placeholder="Juan"
@@ -1712,10 +1912,18 @@ onMounted(() => {
                                             'first_name',
                                         )
                                     "
+                                    @blur="validateFirstName"
                                 />
                                 <p
-                                    v-if="inputWarnings.first_name"
-                                    class="text-xs text-red-500 font-bold mt-1 ml-1 animate-pulse"
+                                    v-if="fieldErrors.first_name"
+                                    class="text-xs text-red-500 font-bold mt-1 ml-1 flex items-center gap-1"
+                                >
+                                    <AlertTriangle class="h-3 w-3" />
+                                    {{ fieldErrors.first_name }}
+                                </p>
+                                <p
+                                    v-else-if="inputWarnings.first_name"
+                                    class="text-xs text-amber-500 font-bold mt-1 ml-1 animate-pulse"
                                 >
                                     {{ inputWarnings.first_name }}
                                 </p>
@@ -1724,6 +1932,8 @@ onMounted(() => {
                                     :message="addForm.errors.first_name"
                                 />
                             </div>
+
+                            <!-- Middle Name -->
                             <div>
                                 <InputLabel
                                     for="middle_name"
@@ -1745,7 +1955,7 @@ onMounted(() => {
                                 />
                                 <p
                                     v-if="inputWarnings.middle_name"
-                                    class="text-xs text-red-500 font-bold mt-1 ml-1 animate-pulse"
+                                    class="text-xs text-amber-500 font-bold mt-1 ml-1 animate-pulse"
                                 >
                                     {{ inputWarnings.middle_name }}
                                 </p>
@@ -1754,16 +1964,23 @@ onMounted(() => {
                                     :message="addForm.errors.middle_name"
                                 />
                             </div>
-                            <div>
+
+                            <!-- Last Name -->
+                            <div data-field-error>
                                 <InputLabel
                                     for="last_name"
-                                    value="Last Name"
+                                    value="Last Name *"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
                                 />
                                 <TextInput
                                     id="last_name"
                                     type="text"
-                                    class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
+                                    :class="[
+                                        'mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none',
+                                        fieldErrors.last_name
+                                            ? 'ring-2 ring-red-500'
+                                            : 'ring-1 ring-slate-200 dark:ring-slate-700',
+                                    ]"
                                     v-model="addForm.last_name"
                                     required
                                     placeholder="Dela Cruz"
@@ -1773,10 +1990,18 @@ onMounted(() => {
                                             'last_name',
                                         )
                                     "
+                                    @blur="validateLastName"
                                 />
                                 <p
-                                    v-if="inputWarnings.last_name"
-                                    class="text-xs text-red-500 font-bold mt-1 ml-1 animate-pulse"
+                                    v-if="fieldErrors.last_name"
+                                    class="text-xs text-red-500 font-bold mt-1 ml-1 flex items-center gap-1"
+                                >
+                                    <AlertTriangle class="h-3 w-3" />
+                                    {{ fieldErrors.last_name }}
+                                </p>
+                                <p
+                                    v-else-if="inputWarnings.last_name"
+                                    class="text-xs text-amber-500 font-bold mt-1 ml-1 animate-pulse"
                                 >
                                     {{ inputWarnings.last_name }}
                                 </p>
@@ -1786,6 +2011,7 @@ onMounted(() => {
                                 />
                             </div>
 
+                            <!-- Section: Professional & Contact -->
                             <div
                                 class="md:col-span-3 mt-4 border-t border-slate-200 dark:border-slate-700 pt-4"
                             >
@@ -1796,33 +2022,48 @@ onMounted(() => {
                                 </h3>
                             </div>
 
-                            <div>
+                            <!-- Email -->
+                            <div data-field-error>
                                 <InputLabel
                                     for="email"
-                                    value="Email Address"
+                                    value="Email Address *"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
                                 />
                                 <TextInput
                                     id="email"
                                     type="email"
-                                    class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
+                                    :class="[
+                                        'mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none',
+                                        fieldErrors.email
+                                            ? 'ring-2 ring-red-500'
+                                            : 'ring-1 ring-slate-200 dark:ring-slate-700',
+                                    ]"
                                     v-model="addForm.email"
                                     required
                                     placeholder="juan@example.com"
                                     @keypress="blockSpecialForEmail($event)"
+                                    @blur="validateEmail"
                                 />
                                 <p
-                                    v-if="inputWarnings.email"
-                                    class="text-xs text-red-500 font-bold mt-1 ml-1 animate-pulse"
+                                    v-if="fieldErrors.email"
+                                    class="text-xs text-red-500 font-bold mt-1 ml-1 flex items-center gap-1"
+                                >
+                                    <AlertTriangle class="h-3 w-3" />
+                                    {{ fieldErrors.email }}
+                                </p>
+                                <p
+                                    v-else-if="inputWarnings.email"
+                                    class="text-xs text-amber-500 font-bold mt-1 ml-1 animate-pulse"
                                 >
                                     {{ inputWarnings.email }}
                                 </p>
                             </div>
 
-                            <div>
+                            <!-- ✅ Phone Number — 11 digits -->
+                            <div data-field-error>
                                 <InputLabel
                                     for="phone_raw"
-                                    value="Phone Number (12 digits)"
+                                    value="Phone Number (11 digits) *"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
                                 />
                                 <div class="flex gap-2 mt-1">
@@ -1833,48 +2074,92 @@ onMounted(() => {
                                         <option value="+63">+63 (PH)</option>
                                         <option value="+1">+1 (US/CA)</option>
                                     </select>
-
-                                    <TextInput
-                                        id="phone_raw"
-                                        type="tel"
-                                        maxlength="12"
-                                        class="w-[65%] py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
-                                        v-model="addForm.phone_raw"
-                                        @input="enforceNumbersOnly"
-                                        @keypress="blockNonNumbers"
-                                        required
-                                        placeholder="09123456789"
-                                    />
+                                    <div class="relative w-[65%]">
+                                        <TextInput
+                                            id="phone_raw"
+                                            type="tel"
+                                            maxlength="11"
+                                            :class="[
+                                                'w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none',
+                                                fieldErrors.phone_raw
+                                                    ? 'ring-2 ring-red-500'
+                                                    : 'ring-1 ring-slate-200 dark:ring-slate-700',
+                                            ]"
+                                            v-model="addForm.phone_raw"
+                                            @input="enforceNumbersOnly"
+                                            @keypress="blockNonNumbers"
+                                            @blur="validatePhone"
+                                            required
+                                            placeholder="09123456789"
+                                        />
+                                        <!-- Live digit counter -->
+                                        <span
+                                            class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-black"
+                                            :class="
+                                                addForm.phone_raw.length === 11
+                                                    ? 'text-emerald-500'
+                                                    : 'text-slate-400'
+                                            "
+                                        >
+                                            {{ addForm.phone_raw.length }}/11
+                                        </span>
+                                    </div>
                                 </div>
                                 <p
-                                    v-if="inputWarnings.phone_raw"
-                                    class="text-xs text-red-500 font-bold mt-1 ml-1 animate-pulse"
+                                    v-if="fieldErrors.phone_raw"
+                                    class="text-xs text-red-500 font-bold mt-1 ml-1 flex items-center gap-1"
+                                >
+                                    <AlertTriangle class="h-3 w-3" />
+                                    {{ fieldErrors.phone_raw }}
+                                </p>
+                                <p
+                                    v-else-if="inputWarnings.phone_raw"
+                                    class="text-xs text-amber-500 font-bold mt-1 ml-1 animate-pulse"
                                 >
                                     {{ inputWarnings.phone_raw }}
                                 </p>
                             </div>
 
-                            <div>
+                            <!-- Position Applied -->
+                            <div data-field-error>
                                 <InputLabel
                                     for="position_applied"
-                                    value="Position Applied For"
+                                    value="Position Applied For *"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
                                 />
                                 <select
                                     id="position_applied"
                                     v-model="addForm.position_applied"
                                     required
-                                    class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
+                                    :class="[
+                                        'mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none',
+                                        fieldErrors.position_applied
+                                            ? 'ring-2 ring-red-500'
+                                            : 'ring-1 ring-slate-200 dark:ring-slate-700',
+                                    ]"
+                                    @change="validatePosition"
                                 >
-                                    <option value="" disabled>Select Position</option>
-                                     <!-- <option value="Staff">Staff</option>
-                                      <option value="Manager">Manager</option> -->
-                                    <option v-for="pos in activePositions" :key="pos.id" :value="pos.position">
+                                    <option value="" disabled>
+                                        Select Position
+                                    </option>
+                                    <option
+                                        v-for="pos in activePositions"
+                                        :key="pos.id"
+                                        :value="pos.position"
+                                    >
                                         {{ pos.position }}
                                     </option>
                                 </select>
+                                <p
+                                    v-if="fieldErrors.position_applied"
+                                    class="text-xs text-red-500 font-bold mt-1 ml-1 flex items-center gap-1"
+                                >
+                                    <AlertTriangle class="h-3 w-3" />
+                                    {{ fieldErrors.position_applied }}
+                                </p>
                             </div>
 
+                            <!-- Notice Period -->
                             <div>
                                 <InputLabel
                                     for="notice_period"
@@ -1894,82 +2179,141 @@ onMounted(() => {
                                 </select>
                             </div>
 
-                            <div class="md:col-span-3">
+                            <!-- Street Address -->
+                            <div class="md:col-span-3" data-field-error>
                                 <InputLabel
                                     for="street_address"
-                                    value="Street Address"
+                                    value="Street Address *"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
                                 />
                                 <TextInput
                                     id="street_address"
                                     type="text"
-                                    class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
+                                    :class="[
+                                        'mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none',
+                                        fieldErrors.street_address
+                                            ? 'ring-2 ring-red-500'
+                                            : 'ring-1 ring-slate-200 dark:ring-slate-700',
+                                    ]"
                                     v-model="addForm.street_address"
                                     required
                                     placeholder="123 Main St, Brgy. San Jose"
                                     @keypress="blockSpecialForAddress($event)"
+                                    @blur="validateStreetAddress"
                                 />
                                 <p
-                                    v-if="inputWarnings.street_address"
-                                    class="text-xs text-red-500 font-bold mt-1 ml-1 animate-pulse"
+                                    v-if="fieldErrors.street_address"
+                                    class="text-xs text-red-500 font-bold mt-1 ml-1 flex items-center gap-1"
+                                >
+                                    <AlertTriangle class="h-3 w-3" />
+                                    {{ fieldErrors.street_address }}
+                                </p>
+                                <p
+                                    v-else-if="inputWarnings.street_address"
+                                    class="text-xs text-amber-500 font-bold mt-1 ml-1 animate-pulse"
                                 >
                                     {{ inputWarnings.street_address }}
                                 </p>
                             </div>
 
-                            <div>
+                            <!-- City -->
+                            <div data-field-error>
                                 <InputLabel
                                     for="city"
-                                    value="City/Municipality"
+                                    value="City/Municipality *"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
                                 />
                                 <TextInput
                                     id="city"
                                     type="text"
-                                    class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
+                                    :class="[
+                                        'mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none',
+                                        fieldErrors.city
+                                            ? 'ring-2 ring-red-500'
+                                            : 'ring-1 ring-slate-200 dark:ring-slate-700',
+                                    ]"
                                     v-model="addForm.city"
                                     required
                                     placeholder="General Trias"
+                                    @blur="validateCity"
                                 />
+                                <p
+                                    v-if="fieldErrors.city"
+                                    class="text-xs text-red-500 font-bold mt-1 ml-1 flex items-center gap-1"
+                                >
+                                    <AlertTriangle class="h-3 w-3" />
+                                    {{ fieldErrors.city }}
+                                </p>
                             </div>
-                            <div>
+
+                            <!-- State/Province -->
+                            <div data-field-error>
                                 <InputLabel
                                     for="state_province"
-                                    value="State/Province"
+                                    value="State/Province *"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
                                 />
                                 <TextInput
                                     id="state_province"
                                     type="text"
-                                    class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
+                                    :class="[
+                                        'mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none',
+                                        fieldErrors.state_province
+                                            ? 'ring-2 ring-red-500'
+                                            : 'ring-1 ring-slate-200 dark:ring-slate-700',
+                                    ]"
                                     v-model="addForm.state_province"
                                     required
                                     placeholder="Cavite"
+                                    @blur="validateStateProvince"
                                 />
+                                <p
+                                    v-if="fieldErrors.state_province"
+                                    class="text-xs text-red-500 font-bold mt-1 ml-1 flex items-center gap-1"
+                                >
+                                    <AlertTriangle class="h-3 w-3" />
+                                    {{ fieldErrors.state_province }}
+                                </p>
                             </div>
-                            <div>
+
+                            <!-- Postal Code -->
+                            <div data-field-error>
                                 <InputLabel
                                     for="postal_zip_code"
-                                    value="Postal/Zip Code"
+                                    value="Postal/Zip Code *"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
                                 />
                                 <TextInput
                                     id="postal_zip_code"
                                     type="text"
                                     maxlength="4"
-                                    class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
+                                    :class="[
+                                        'mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none',
+                                        fieldErrors.postal_zip_code
+                                            ? 'ring-2 ring-red-500'
+                                            : 'ring-1 ring-slate-200 dark:ring-slate-700',
+                                    ]"
                                     v-model="addForm.postal_zip_code"
                                     required
                                     placeholder="4107"
+                                    @blur="validatePostalCode"
                                 />
                                 <p
-                                    v-if="inputWarnings.postal_zip_code"
-                                    class="text-xs text-red-500 font-bold mt-1 ml-1 animate-pulse"
+                                    v-if="fieldErrors.postal_zip_code"
+                                    class="text-xs text-red-500 font-bold mt-1 ml-1 flex items-center gap-1"
+                                >
+                                    <AlertTriangle class="h-3 w-3" />
+                                    {{ fieldErrors.postal_zip_code }}
+                                </p>
+                                <p
+                                    v-else-if="inputWarnings.postal_zip_code"
+                                    class="text-xs text-amber-500 font-bold mt-1 ml-1 animate-pulse"
                                 >
                                     {{ inputWarnings.postal_zip_code }}
                                 </p>
                             </div>
 
+                            <!-- Section: Other Details -->
                             <div
                                 class="md:col-span-3 mt-4 border-t border-slate-200 dark:border-slate-700 pt-4"
                             >
@@ -1980,7 +2324,8 @@ onMounted(() => {
                                 </h3>
                             </div>
 
-                            <div>
+                            <!-- Date of Birth -->
+                            <div data-field-error>
                                 <InputLabel
                                     for="date_of_birth"
                                     value="Date of Birth"
@@ -1989,13 +2334,31 @@ onMounted(() => {
                                 <TextInput
                                     id="date_of_birth"
                                     type="date"
-                                    class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
+                                    :class="[
+                                        'mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none',
+                                        fieldErrors.date_of_birth ||
+                                        (addForm.date_of_birth &&
+                                            !isOldEnough(addForm.date_of_birth))
+                                            ? 'ring-2 ring-red-500'
+                                            : 'ring-1 ring-slate-200 dark:ring-slate-700',
+                                    ]"
                                     v-model="addForm.date_of_birth"
-                                    :class="{'border-red-500': addForm.date_of_birth && !isOldEnough(addForm.date_of_birth)}"/>
-                                     <p v-if="addForm.date_of_birth && !isOldEnough(addForm.date_of_birth)" class="text-[10px] text-red-500 font-bold mt-1 italic uppercase">
-                                       APPLICANT MUST BE 18+ YEARS OLD
-                                      </p>
+                                    @blur="validateDateOfBirth"
+                                />
+                                <p
+                                    v-if="
+                                        fieldErrors.date_of_birth ||
+                                        (addForm.date_of_birth &&
+                                            !isOldEnough(addForm.date_of_birth))
+                                    "
+                                    class="text-xs text-red-500 font-bold mt-1 ml-1 flex items-center gap-1 uppercase italic"
+                                >
+                                    <AlertTriangle class="h-3 w-3" /> Applicant
+                                    must be 18+ years old
+                                </p>
                             </div>
+
+                            <!-- Place of Birth -->
                             <div>
                                 <InputLabel
                                     for="place_of_birth"
@@ -2010,6 +2373,8 @@ onMounted(() => {
                                     placeholder="City, Province"
                                 />
                             </div>
+
+                            <!-- Citizenship -->
                             <div>
                                 <InputLabel
                                     for="citizenship"
@@ -2025,7 +2390,8 @@ onMounted(() => {
                                 />
                             </div>
 
-                            <div>
+                            <!-- Weight -->
+                            <div data-field-error>
                                 <InputLabel
                                     for="weight"
                                     value="Weight (kg)"
@@ -2035,17 +2401,40 @@ onMounted(() => {
                                     id="weight"
                                     type="text"
                                     step="0.1"
-                                    class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
+                                    :class="[
+                                        'mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none',
+                                        fieldErrors.weight
+                                            ? 'ring-2 ring-red-500'
+                                            : 'ring-1 ring-slate-200 dark:ring-slate-700',
+                                    ]"
                                     v-model="addForm.weight"
                                     placeholder="65.5"
-                                    @keypress="(e) => {
-                                            if (!/[0-9.]/.test(e.key)) e.preventDefault();
-                                            if (e.key === '.' && addForm.weight.toString().includes('.')) e.preventDefault();
-                                            }"
+                                    @blur="validateWeight"
+                                    @keypress="
+                                        (e) => {
+                                            if (!/[0-9.]/.test(e.key))
+                                                e.preventDefault();
+                                            if (
+                                                e.key === '.' &&
+                                                addForm.weight
+                                                    .toString()
+                                                    .includes('.')
+                                            )
+                                                e.preventDefault();
+                                        }
+                                    "
                                 />
-                            
+                                <p
+                                    v-if="fieldErrors.weight"
+                                    class="text-xs text-red-500 font-bold mt-1 ml-1 flex items-center gap-1"
+                                >
+                                    <AlertTriangle class="h-3 w-3" />
+                                    {{ fieldErrors.weight }}
+                                </p>
                             </div>
-                            <div>
+
+                            <!-- Height -->
+                            <div data-field-error>
                                 <InputLabel
                                     for="height"
                                     value="Height (cm)"
@@ -2055,15 +2444,39 @@ onMounted(() => {
                                     id="height"
                                     type="text"
                                     step="0.1"
-                                    class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
+                                    :class="[
+                                        'mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none',
+                                        fieldErrors.height
+                                            ? 'ring-2 ring-red-500'
+                                            : 'ring-1 ring-slate-200 dark:ring-slate-700',
+                                    ]"
                                     v-model="addForm.height"
                                     placeholder="170"
-                                    @keypress="(e) => {
-                                            if (!/[0-9.]/.test(e.key)) e.preventDefault();
-                                            if (e.key === '.' && addForm.height.toString().includes('.')) e.preventDefault();
-                                            }"
+                                    @blur="validateHeight"
+                                    @keypress="
+                                        (e) => {
+                                            if (!/[0-9.]/.test(e.key))
+                                                e.preventDefault();
+                                            if (
+                                                e.key === '.' &&
+                                                addForm.height
+                                                    .toString()
+                                                    .includes('.')
+                                            )
+                                                e.preventDefault();
+                                        }
+                                    "
                                 />
+                                <p
+                                    v-if="fieldErrors.height"
+                                    class="text-xs text-red-500 font-bold mt-1 ml-1 flex items-center gap-1"
+                                >
+                                    <AlertTriangle class="h-3 w-3" />
+                                    {{ fieldErrors.height }}
+                                </p>
                             </div>
+
+                            <!-- Civil Status -->
                             <div>
                                 <InputLabel
                                     for="civil_status"
@@ -2083,6 +2496,7 @@ onMounted(() => {
                                 </select>
                             </div>
 
+                            <!-- Sex -->
                             <div>
                                 <InputLabel
                                     for="sex"
@@ -2099,6 +2513,8 @@ onMounted(() => {
                                     <option value="Female">Female</option>
                                 </select>
                             </div>
+
+                            <!-- Religion -->
                             <div>
                                 <InputLabel
                                     for="religion"
@@ -2115,6 +2531,7 @@ onMounted(() => {
                             </div>
                         </div>
 
+                        <!-- Government IDs -->
                         <div class="grid grid-cols-1 gap-6 mt-6">
                             <div>
                                 <h3
@@ -2133,12 +2550,18 @@ onMounted(() => {
                                     <TextInput
                                         id="sss_number"
                                         type="text"
-                                        maxlength= 10
+                                        maxlength="10"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
                                         v-model="addForm.sss_number"
                                         placeholder="XX-XXXXXXX-X"
-                                       @keypress="blockNonNumbers"
-                                       @input="addForm.emergency_phone = $event.target.value.replace(/\D/g, '')"
+                                        @keypress="blockNonNumbers"
+                                        @input="
+                                            addForm.sss_number =
+                                                $event.target.value.replace(
+                                                    /\D/g,
+                                                    '',
+                                                )
+                                        "
                                     />
                                 </div>
                                 <div>
@@ -2150,13 +2573,19 @@ onMounted(() => {
                                     <TextInput
                                         id="philhealth_number"
                                         type="text"
-                                        maxlength=12
+                                        maxlength="12"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
                                         v-model="addForm.philhealth_number"
                                         placeholder="XX-XXXXXXXXX-X"
                                         @keypress="blockNonNumbers"
-                                        @input="addForm.philhealth_number = $event.target.value.replace(/\D/g, '')"
-                                        />
+                                        @input="
+                                            addForm.philhealth_number =
+                                                $event.target.value.replace(
+                                                    /\D/g,
+                                                    '',
+                                                )
+                                        "
+                                    />
                                 </div>
                                 <div>
                                     <InputLabel
@@ -2167,14 +2596,20 @@ onMounted(() => {
                                     <TextInput
                                         id="pagibig_number"
                                         type="text"
-                                        maxlength= 12
+                                        maxlength="12"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
                                         v-model="addForm.pagibig_number"
                                         placeholder="XXXX-XXXX-XXXX"
                                         @keypress="blockNonNumbers"
-                                            @input="addForm.pagibig_numbers = $event.target.value.replace(/\D/g, '')"
-                                        />
-                                                                        </div>
+                                        @input="
+                                            addForm.pagibig_number =
+                                                $event.target.value.replace(
+                                                    /\D/g,
+                                                    '',
+                                                )
+                                        "
+                                    />
+                                </div>
                             </div>
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 <div
@@ -2244,6 +2679,7 @@ onMounted(() => {
                             </div>
                         </div>
 
+                        <!-- Spouse Information -->
                         <div class="grid grid-cols-1 gap-6 mt-6">
                             <div>
                                 <h3
@@ -2258,8 +2694,7 @@ onMounted(() => {
                                         for="spouse_name"
                                         value="Spouse's Full Name"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="spouse_name"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2272,8 +2707,7 @@ onMounted(() => {
                                         for="spouse_occupation"
                                         value="Occupation"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="spouse_occupation"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2286,8 +2720,7 @@ onMounted(() => {
                                         for="spouse_address"
                                         value="Address"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="spouse_address"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2298,6 +2731,7 @@ onMounted(() => {
                             </div>
                         </div>
 
+                        <!-- Children -->
                         <div class="grid grid-cols-1 gap-6 mt-6">
                             <div>
                                 <h3
@@ -2332,8 +2766,7 @@ onMounted(() => {
                                         :for="`child_name_${idx}`"
                                         value="Name"
                                         class="text-slate-600 dark:text-slate-400 text-xs"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         :id="`child_name_${idx}`"
                                         type="text"
                                         class="mt-1 w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-800 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2346,8 +2779,7 @@ onMounted(() => {
                                         :for="`child_dob_${idx}`"
                                         value="Date of Birth"
                                         class="text-slate-600 dark:text-slate-400 text-xs"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         :id="`child_dob_${idx}`"
                                         type="date"
                                         class="mt-1 w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-800 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2357,6 +2789,7 @@ onMounted(() => {
                             </div>
                         </div>
 
+                        <!-- Parents Information -->
                         <div class="grid grid-cols-1 gap-6 mt-6">
                             <div>
                                 <h3
@@ -2371,8 +2804,7 @@ onMounted(() => {
                                         for="mother_name"
                                         value="Mother's Name"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="mother_name"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2385,8 +2817,7 @@ onMounted(() => {
                                         for="mother_address"
                                         value="Mother's Address"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="mother_address"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2399,8 +2830,7 @@ onMounted(() => {
                                         for="father_name"
                                         value="Father's Name"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="father_name"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2413,8 +2843,7 @@ onMounted(() => {
                                         for="father_address"
                                         value="Father's Address"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="father_address"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2425,6 +2854,7 @@ onMounted(() => {
                             </div>
                         </div>
 
+                        <!-- Languages -->
                         <div class="mt-6">
                             <InputLabel
                                 for="languages"
@@ -2440,6 +2870,7 @@ onMounted(() => {
                             />
                         </div>
 
+                        <!-- Emergency Contact -->
                         <div class="grid grid-cols-1 gap-6 mt-6">
                             <div>
                                 <h3
@@ -2454,8 +2885,7 @@ onMounted(() => {
                                         for="emergency_name"
                                         value="Name"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="emergency_name"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2468,8 +2898,7 @@ onMounted(() => {
                                         for="emergency_relationship"
                                         value="Relationship"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="emergency_relationship"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2489,9 +2918,14 @@ onMounted(() => {
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
                                         v-model="addForm.emergency_phone"
                                         placeholder="09123456789"
-                                         @keypress="blockNonNumbers"
-                                         @input="addForm.emergency_phone = $event.target.value.replace(/\D/g, '')"
-
+                                        @keypress="blockNonNumbers"
+                                        @input="
+                                            addForm.emergency_phone =
+                                                $event.target.value.replace(
+                                                    /\D/g,
+                                                    '',
+                                                )
+                                        "
                                     />
                                 </div>
                                 <div class="md:col-span-2">
@@ -2499,8 +2933,7 @@ onMounted(() => {
                                         for="emergency_address"
                                         value="Address"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="emergency_address"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2511,6 +2944,7 @@ onMounted(() => {
                             </div>
                         </div>
 
+                        <!-- Educational Background -->
                         <div class="grid grid-cols-1 gap-6 mt-6">
                             <div>
                                 <h3
@@ -2525,8 +2959,7 @@ onMounted(() => {
                                         for="elementary_school"
                                         value="Elementary School"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="elementary_school"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2539,16 +2972,20 @@ onMounted(() => {
                                         for="elementary_year"
                                         value="Year Graduated"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="elementary_year"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
                                         v-model="addForm.elementary_year"
                                         placeholder="YYYY"
                                         @keypress="blockNonNumbers"
-                                        @input="elementary_year = $event.target.value.replace(/\D/g, '')"
-
+                                        @input="
+                                            addForm.elementary_year =
+                                                $event.target.value.replace(
+                                                    /\D/g,
+                                                    '',
+                                                )
+                                        "
                                     />
                                 </div>
                                 <div>
@@ -2556,8 +2993,7 @@ onMounted(() => {
                                         for="high_school"
                                         value="High School"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="high_school"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2570,16 +3006,20 @@ onMounted(() => {
                                         for="high_year"
                                         value="Year Graduated"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="high_year"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
                                         v-model="addForm.high_year"
                                         placeholder="YYYY"
                                         @keypress="blockNonNumbers"
-                                       @input="high_year = $event.target.value.replace(/\D/g, '')"
-
+                                        @input="
+                                            addForm.high_year =
+                                                $event.target.value.replace(
+                                                    /\D/g,
+                                                    '',
+                                                )
+                                        "
                                     />
                                 </div>
                                 <div>
@@ -2587,8 +3027,7 @@ onMounted(() => {
                                         for="college"
                                         value="College"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="college"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2601,16 +3040,20 @@ onMounted(() => {
                                         for="college_year"
                                         value="Year Graduated"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="college_year"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
                                         v-model="addForm.college_year"
                                         placeholder="YYYY"
                                         @keypress="blockNonNumbers"
-                                        @input="college_year = $event.target.value.replace(/\D/g, '')"
-
+                                        @input="
+                                            addForm.college_year =
+                                                $event.target.value.replace(
+                                                    /\D/g,
+                                                    '',
+                                                )
+                                        "
                                     />
                                 </div>
                                 <div>
@@ -2618,8 +3061,7 @@ onMounted(() => {
                                         for="vocational"
                                         value="Vocational"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="vocational"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2632,8 +3074,7 @@ onMounted(() => {
                                         for="vocational_year"
                                         value="Year Graduated"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="vocational_year"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2647,8 +3088,7 @@ onMounted(() => {
                                     for="special_skills"
                                     value="Special Skills"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
-                                />
-                                <TextInput
+                                /><TextInput
                                     id="special_skills"
                                     type="text"
                                     class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2658,6 +3098,7 @@ onMounted(() => {
                             </div>
                         </div>
 
+                        <!-- Employment Records -->
                         <div class="grid grid-cols-1 gap-6 mt-6">
                             <div class="flex items-center gap-2">
                                 <input
@@ -2669,9 +3110,8 @@ onMounted(() => {
                                 <label
                                     for="has_employment_record"
                                     class="text-sm font-semibold text-slate-700 dark:text-slate-300"
+                                    >I have previous employment record(s)</label
                                 >
-                                    I have previous employment record(s)
-                                </label>
                             </div>
                             <div v-if="showEmploymentSection">
                                 <div
@@ -2708,8 +3148,7 @@ onMounted(() => {
                                             :for="`emp_company_${idx}`"
                                             value="Company"
                                             class="text-xs text-slate-600 dark:text-slate-400"
-                                        />
-                                        <TextInput
+                                        /><TextInput
                                             :id="`emp_company_${idx}`"
                                             type="text"
                                             class="mt-1 w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-800 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2722,16 +3161,20 @@ onMounted(() => {
                                             :for="`emp_years_${idx}`"
                                             value="Years of Service"
                                             class="text-xs text-slate-600 dark:text-slate-400"
-                                        />
-                                        <TextInput
+                                        /><TextInput
                                             :id="`emp_years_${idx}`"
                                             type="text"
                                             class="mt-1 w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-800 border-none ring-1 ring-slate-200 dark:ring-slate-700"
                                             v-model="rec.years"
                                             placeholder="e.g., 2 years"
-                                             @keypress="blockNonNumbers"
-                                             @input="emp_years = $event.target.value.replace(/\D/g, '')"
-
+                                            @keypress="blockNonNumbers"
+                                            @input="
+                                                rec.years =
+                                                    $event.target.value.replace(
+                                                        /\D/g,
+                                                        '',
+                                                    )
+                                            "
                                         />
                                     </div>
                                     <div>
@@ -2739,15 +3182,20 @@ onMounted(() => {
                                             :for="`emp_salary_${idx}`"
                                             value="Salary"
                                             class="text-xs text-slate-600 dark:text-slate-400"
-                                        />
-                                        <TextInput
+                                        /><TextInput
                                             :id="`emp_salary_${idx}`"
                                             type="text"
                                             class="mt-1 w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-800 border-none ring-1 ring-slate-200 dark:ring-slate-700"
                                             v-model="rec.salary"
                                             placeholder="Monthly"
-                                              @keypress="blockNonNumbers"
-                                             @input="emp_salary = $event.target.value.replace(/\D/g, '')"
+                                            @keypress="blockNonNumbers"
+                                            @input="
+                                                rec.salary =
+                                                    $event.target.value.replace(
+                                                        /\D/g,
+                                                        '',
+                                                    )
+                                            "
                                         />
                                     </div>
                                     <div>
@@ -2755,8 +3203,7 @@ onMounted(() => {
                                             :for="`emp_position_${idx}`"
                                             value="Position"
                                             class="text-xs text-slate-600 dark:text-slate-400"
-                                        />
-                                        <TextInput
+                                        /><TextInput
                                             :id="`emp_position_${idx}`"
                                             type="text"
                                             class="mt-1 w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-800 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2769,8 +3216,7 @@ onMounted(() => {
                                             :for="`emp_reason_${idx}`"
                                             value="Reason for Leaving"
                                             class="text-xs text-slate-600 dark:text-slate-400"
-                                        />
-                                        <TextInput
+                                        /><TextInput
                                             :id="`emp_reason_${idx}`"
                                             type="text"
                                             class="mt-1 w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-800 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2782,14 +3228,14 @@ onMounted(() => {
                             </div>
                         </div>
 
+                        <!-- Machine & Referral -->
                         <div class="grid grid-cols-1 gap-6 mt-6">
                             <div>
                                 <InputLabel
                                     for="machine_operation"
                                     value="Any machine you can operate?"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
-                                />
-                                <TextInput
+                                /><TextInput
                                     id="machine_operation"
                                     type="text"
                                     class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2802,8 +3248,7 @@ onMounted(() => {
                                     for="referred_by"
                                     value="Who referred you to this company?"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
-                                />
-                                <TextInput
+                                /><TextInput
                                     id="referred_by"
                                     type="text"
                                     class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2816,8 +3261,7 @@ onMounted(() => {
                                     for="referred_by_address"
                                     value="His/Her address"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
-                                />
-                                <TextInput
+                                /><TextInput
                                     id="referred_by_address"
                                     type="text"
                                     class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2827,6 +3271,7 @@ onMounted(() => {
                             </div>
                         </div>
 
+                        <!-- Previous Employment -->
                         <div class="grid grid-cols-1 gap-6 mt-6">
                             <div>
                                 <h3
@@ -2865,8 +3310,7 @@ onMounted(() => {
                                         for="previous_employment_when"
                                         value="When?"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="previous_employment_when"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2881,8 +3325,7 @@ onMounted(() => {
                                         for="previous_employment_position"
                                         value="Position"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="previous_employment_position"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2897,8 +3340,7 @@ onMounted(() => {
                                         for="previous_employment_department"
                                         value="Department"
                                         class="text-slate-700 dark:text-slate-300 font-semibold"
-                                    />
-                                    <TextInput
+                                    /><TextInput
                                         id="previous_employment_department"
                                         type="text"
                                         class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2911,6 +3353,7 @@ onMounted(() => {
                             </div>
                         </div>
 
+                        <!-- Related Employees -->
                         <div class="grid grid-cols-1 gap-6 mt-6">
                             <div>
                                 <h3
@@ -2932,8 +3375,7 @@ onMounted(() => {
                                     for="related_employees"
                                     value="Name — Relationship"
                                     class="text-slate-700 dark:text-slate-300 font-semibold"
-                                />
-                                <TextInput
+                                /><TextInput
                                     id="related_employees"
                                     type="text"
                                     class="mt-1 w-full py-3 px-4 rounded-xl bg-slate-50 dark:bg-slate-900 border-none ring-1 ring-slate-200 dark:ring-slate-700"
@@ -2943,6 +3385,7 @@ onMounted(() => {
                             </div>
                         </div>
 
+                        <!-- Submit Buttons -->
                         <div
                             class="flex justify-end gap-3 pt-8 border-t border-slate-200 dark:border-slate-700 mt-8"
                         >
@@ -2961,9 +3404,10 @@ onMounted(() => {
                                 <span v-if="addForm.processing"
                                     >Processing...</span
                                 >
-                                <span v-else class="flex items-center gap-2">
-                                    <Save class="w-4 h-4" /> Save Applicant
-                                </span>
+                                <span v-else class="flex items-center gap-2"
+                                    ><Save class="w-4 h-4" /> Save
+                                    Applicant</span
+                                >
                             </button>
                         </div>
                     </form>
@@ -2971,7 +3415,148 @@ onMounted(() => {
             </div>
         </div>
 
-        <!-- Position Management Modal -->
+        <!-- ─── Confirmation Modal ────────────────────────────────────────────── -->
+        <div
+            v-if="isConfirmModalOpen"
+            class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md"
+            @click.self="isConfirmModalOpen = false"
+        >
+            <div
+                class="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl max-w-md w-full overflow-hidden"
+            >
+                <div class="bg-blue-600 p-8 text-white">
+                    <div class="flex items-center gap-3 mb-2">
+                        <div class="p-2 bg-white/20 rounded-xl">
+                            <AlertTriangle class="h-6 w-6" />
+                        </div>
+                        <h2 class="text-xl font-black uppercase">
+                            Confirm Submission
+                        </h2>
+                    </div>
+                    <p class="text-blue-200 text-xs mt-1">
+                        Please review the applicant information before
+                        confirming.
+                    </p>
+                </div>
+                <div class="p-8 space-y-4">
+                    <!-- Summary of key fields -->
+                    <div
+                        class="bg-slate-50 dark:bg-slate-900/40 rounded-2xl p-4 space-y-3"
+                    >
+                        <p
+                            class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2"
+                        >
+                            Applicant Summary
+                        </p>
+                        <div class="grid grid-cols-2 gap-3 text-sm">
+                            <div>
+                                <p
+                                    class="text-[10px] text-slate-400 font-bold uppercase"
+                                >
+                                    Full Name
+                                </p>
+                                <p
+                                    class="font-bold text-slate-800 dark:text-white truncate"
+                                >
+                                    {{
+                                        [
+                                            addForm.first_name,
+                                            addForm.middle_name,
+                                            addForm.last_name,
+                                        ]
+                                            .filter(Boolean)
+                                            .join(" ")
+                                    }}
+                                </p>
+                            </div>
+                            <div>
+                                <p
+                                    class="text-[10px] text-slate-400 font-bold uppercase"
+                                >
+                                    Position
+                                </p>
+                                <p
+                                    class="font-bold text-slate-800 dark:text-white truncate"
+                                >
+                                    {{ addForm.position_applied || "—" }}
+                                </p>
+                            </div>
+                            <div>
+                                <p
+                                    class="text-[10px] text-slate-400 font-bold uppercase"
+                                >
+                                    Email
+                                </p>
+                                <p
+                                    class="font-bold text-slate-800 dark:text-white truncate text-xs"
+                                >
+                                    {{ addForm.email || "—" }}
+                                </p>
+                            </div>
+                            <div>
+                                <p
+                                    class="text-[10px] text-slate-400 font-bold uppercase"
+                                >
+                                    Phone
+                                </p>
+                                <p
+                                    class="font-bold text-slate-800 dark:text-white"
+                                >
+                                    {{ addForm.phone_country
+                                    }}{{ addForm.phone_raw || "—" }}
+                                </p>
+                            </div>
+                            <div class="col-span-2">
+                                <p
+                                    class="text-[10px] text-slate-400 font-bold uppercase"
+                                >
+                                    Address
+                                </p>
+                                <p
+                                    class="font-bold text-slate-800 dark:text-white text-xs"
+                                >
+                                    {{
+                                        [
+                                            addForm.street_address,
+                                            addForm.city,
+                                            addForm.state_province,
+                                            addForm.postal_zip_code,
+                                        ]
+                                            .filter(Boolean)
+                                            .join(", ") || "—"
+                                    }}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <p
+                        class="text-xs text-slate-500 dark:text-slate-400 text-center"
+                    >
+                        Are you sure you want to submit this applicant's
+                        information? This action cannot be undone.
+                    </p>
+                    <div class="flex gap-3 pt-2">
+                        <button
+                            @click="isConfirmModalOpen = false"
+                            class="flex-1 py-4 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 font-bold text-xs uppercase rounded-2xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+                        >
+                            Go Back & Review
+                        </button>
+                        <button
+                            @click="confirmAndSubmit"
+                            :disabled="addForm.processing"
+                            class="flex-1 py-4 bg-blue-600 text-white rounded-2xl text-xs font-black uppercase shadow-lg hover:bg-blue-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                            <Save class="w-4 h-4" />
+                            <span v-if="addForm.processing">Submitting...</span>
+                            <span v-else>Confirm & Submit</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── Position Management Modal ────────────────────────────────────── -->
         <div
             v-if="isPositionModalOpen"
             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md"
@@ -2986,8 +3571,8 @@ onMounted(() => {
                     <h2
                         class="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight flex items-center gap-2"
                     >
-                        <BookPlus class="h-6 w-6 text-blue-600" />
-                        Manage Positions
+                        <BookPlus class="h-6 w-6 text-blue-600" /> Manage
+                        Positions
                     </h2>
                     <button
                         @click="closePositionModal"
@@ -3020,7 +3605,6 @@ onMounted(() => {
                             <span v-else>Save Position</span>
                         </button>
                     </form>
-
                     <div class="space-y-4">
                         <h3
                             class="text-sm font-black uppercase tracking-widest text-slate-900 dark:text-white"
@@ -3035,26 +3619,41 @@ onMounted(() => {
                                     class="bg-slate-50 dark:bg-slate-900/40 border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400"
                                 >
                                     <tr>
-                                        <th class="px-6 py-4 font-bold uppercase tracking-wider text-[10px]">
+                                        <th
+                                            class="px-6 py-4 font-bold uppercase tracking-wider text-[10px]"
+                                        >
                                             Position Name
                                         </th>
-                                        <th class="px-6 py-4 font-bold uppercase tracking-wider text-[10px] w-24">
+                                        <th
+                                            class="px-6 py-4 font-bold uppercase tracking-wider text-[10px] w-24"
+                                        >
                                             Status
                                         </th>
-                                        <th class="px-6 py-4 font-bold uppercase tracking-wider text-[10px] text-right w-48">
+                                        <th
+                                            class="px-6 py-4 font-bold uppercase tracking-wider text-[10px] text-right w-48"
+                                        >
                                             Actions
                                         </th>
                                     </tr>
                                 </thead>
-                                <tbody class="divide-y divide-slate-100 dark:divide-slate-700 bg-white dark:bg-slate-800">
+                                <tbody
+                                    class="divide-y divide-slate-100 dark:divide-slate-700 bg-white dark:bg-slate-800"
+                                >
                                     <tr v-if="isLoadingPositions">
-                                        <td colspan="3" class="px-6 py-8 text-center text-slate-500 font-medium">
+                                        <td
+                                            colspan="3"
+                                            class="px-6 py-8 text-center text-slate-500 font-medium"
+                                        >
                                             Loading positions...
                                         </td>
                                     </tr>
                                     <tr v-else-if="positions.length === 0">
-                                        <td colspan="3" class="px-6 py-8 text-center text-slate-500 font-medium">
-                                            No positions found. Create one above.
+                                        <td
+                                            colspan="3"
+                                            class="px-6 py-8 text-center text-slate-500 font-medium"
+                                        >
+                                            No positions found. Create one
+                                            above.
                                         </td>
                                     </tr>
                                     <tr
@@ -3063,45 +3662,70 @@ onMounted(() => {
                                         :key="pos.id"
                                         class="hover:bg-slate-50 dark:hover:bg-slate-900/20 transition-colors"
                                     >
-                                        <td class="px-6 py-4 font-semibold text-slate-700 dark:text-slate-200">
+                                        <td
+                                            class="px-6 py-4 font-semibold text-slate-700 dark:text-slate-200"
+                                        >
                                             {{ pos.position }}
                                         </td>
-
                                         <td class="px-6 py-4">
                                             <span
                                                 :class="[
-                                                    pos.status === 'active' 
-                                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' 
+                                                    pos.status === 'active'
+                                                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
                                                         : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-                                                    'px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider'
+                                                    'px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider',
                                                 ]"
+                                                >{{ pos.status }}</span
                                             >
-                                                {{ pos.status }}
-                                            </span>
                                         </td>
-
                                         <td class="px-6 py-4 text-right">
-                                            <div class="flex items-center justify-end gap-2">
+                                            <div
+                                                class="flex items-center justify-end gap-2"
+                                            >
                                                 <button
-                                                    @click="openEditPositionModal(pos)"
+                                                    @click="
+                                                        openEditPositionModal(
+                                                            pos,
+                                                        )
+                                                    "
                                                     class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all text-amber-600 bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/20 dark:hover:bg-amber-900/40"
                                                     title="Edit Position"
                                                 >
-                                                    <Edit class="h-4 w-4" /> Edit
+                                                    <Edit class="h-4 w-4" />
+                                                    Edit
                                                 </button>
                                                 <button
-                                                    @click="toggleStatus(pos.id)"
+                                                    @click="
+                                                        toggleStatus(pos.id)
+                                                    "
                                                     :class="[
                                                         'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all',
-                                                        pos.status === 'active' 
-                                                            ? 'text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40' 
-                                                            : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/40'
+                                                        pos.status === 'active'
+                                                            ? 'text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40'
+                                                            : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:hover:bg-emerald-900/40',
                                                     ]"
-                                                    :title="pos.status === 'active' ? 'Deactivate Position' : 'Activate Position'"
+                                                    :title="
+                                                        pos.status === 'active'
+                                                            ? 'Deactivate Position'
+                                                            : 'Activate Position'
+                                                    "
                                                 >
-                                                    <XCircle v-if="pos.status === 'active'" class="h-4 w-4" />
-                                                    <CheckCircle v-else class="h-4 w-4" />
-                                                    {{ pos.status === 'active' ? 'Deactivate' : 'Activate' }}
+                                                    <XCircle
+                                                        v-if="
+                                                            pos.status ===
+                                                            'active'
+                                                        "
+                                                        class="h-4 w-4"
+                                                    />
+                                                    <CheckCircle
+                                                        v-else
+                                                        class="h-4 w-4"
+                                                    />
+                                                    {{
+                                                        pos.status === "active"
+                                                            ? "Deactivate"
+                                                            : "Activate"
+                                                    }}
                                                 </button>
                                             </div>
                                         </td>
@@ -3124,7 +3748,7 @@ onMounted(() => {
             </div>
         </div>
 
-        <!-- Edit Position Modal -->
+        <!-- ─── Edit Position Modal ───────────────────────────────────────────── -->
         <div
             v-if="isEditPositionModalOpen"
             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md"
@@ -3135,11 +3759,16 @@ onMounted(() => {
             >
                 <div class="bg-amber-600 p-8 text-white">
                     <h2 class="text-xl font-black uppercase">Edit Position</h2>
-                    <p class="text-amber-200 text-xs mt-1">Update the position title</p>
+                    <p class="text-amber-200 text-xs mt-1">
+                        Update the position title
+                    </p>
                 </div>
                 <div class="p-8 space-y-6">
                     <div>
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Position Name</label>
+                        <label
+                            class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block"
+                            >Position Name</label
+                        >
                         <input
                             v-model="editPositionTitle"
                             type="text"
@@ -3166,7 +3795,7 @@ onMounted(() => {
             </div>
         </div>
 
-        <!-- Image Viewer Modal -->
+        <!-- ─── Image Viewer Modal ────────────────────────────────────────────── -->
         <div
             v-if="isImageViewerOpen"
             class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md"
@@ -3187,9 +3816,15 @@ onMounted(() => {
                     </button>
                 </div>
                 <div class="p-4 flex items-center justify-center">
-                    <img :src="currentImageUrl" alt="Document" class="max-w-full max-h-[70vh] object-contain" />
+                    <img
+                        :src="currentImageUrl"
+                        alt="Document"
+                        class="max-w-full max-h-[70vh] object-contain"
+                    />
                 </div>
-                <div class="px-6 py-4 border-t border-slate-100 dark:border-slate-700 flex justify-end">
+                <div
+                    class="px-6 py-4 border-t border-slate-100 dark:border-slate-700 flex justify-end"
+                >
                     <button
                         @click="isImageViewerOpen = false"
                         class="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold uppercase"
@@ -3207,7 +3842,6 @@ onMounted(() => {
 .toast-leave-active {
     transition: all 0.3s ease;
 }
-
 .toast-enter-from,
 .toast-leave-to {
     opacity: 0;
