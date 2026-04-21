@@ -920,10 +920,7 @@ Route::prefix('dashboard/pro')->name('pro.')->middleware(['auth', 'verified'])->
         Route::post('/quotations/{responseId}/decline', [ProcurementController::class, 'declineQuotation'])->name('quotations.decline');
         Route::get('/receipt', [ProcurementController::class, 'receipt'])->name('receipt');
         Route::post('/purchase-orders/{poId}/send', [ProcurementController::class, 'sendPurchaseOrder'])->name('purchase-orders.send');
-        Route::get('/access', [ProAccessController::class, 'index'])->name('access.index')
-            ->middleware('role:CEO');
-        Route::post('/access/update', [ProAccessController::class, 'update'])->name('access.update')
-            ->middleware('role:CEO');
+        
     });
 });
 

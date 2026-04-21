@@ -581,13 +581,13 @@ const navItems = computed(() => {
         return all.filter(child => hasModulePermission('WAR', child.permKey))
     }
 
-    const getFilteredInventoryChildren = () => {
+        const getFilteredInventoryChildren = () => {
         const all = [
             { label: 'Dashboard', href: route('inv.dashboard'), icon: LayoutDashboard, permKey: 'dashboard' },
             { label: 'Materials', href: route('inv.materials'), icon: Spool, permKey: 'materials' },
             { label: 'Products', href: route('inv.products'), icon: Package, permKey: 'products' },
             { label: 'Recipes', href: route('inv.bom'), icon: Layers, permKey: 'bom' },
-            { label: 'Stock Checker', href: route('inv.checker'), icon: AlertCircle, permKey: 'checker' },
+            { label: 'Stock Checker', href: route('inv.checker.dashboard'), icon: AlertCircle, permKey: 'checker' },
         ]
         if (isCEO) {
             all.push({ label: 'Access Control', href: route('inv.access'), icon: ShieldCheck, permKey: 'access' })

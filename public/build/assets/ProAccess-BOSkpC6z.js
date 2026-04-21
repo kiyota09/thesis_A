@@ -1,1 +1,0 @@
-import{p as n,c as s,a as o,k as a}from"./app-ByQSj395.js";const l=n({__name:"ProAccess",setup(r){return(t,e)=>(a(),s("div",null,[...e[0]||(e[0]=[o("h1",null,"Pro Access Dashboard",-1),o("p",null,"Coming Soon...",-1)])]))}});export{l as default};
