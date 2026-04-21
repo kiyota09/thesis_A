@@ -106,7 +106,7 @@ const formatTime = (timeStr) => {
                     <div class="bg-slate-950 px-10 py-5 flex flex-col md:flex-row justify-between items-center gap-4">
                         <div class="flex items-center gap-5">
                             <span :class="bundle.urgency === 'High' ? 'bg-rose-600' : 'bg-blue-600'" 
-                                  class="px-4 py-1 rounded-full text-white text-[10px] font-black uppercase tracking-widest shadow-lg">
+                                class="px-4 py-1 rounded-full text-white text-[10px] font-black uppercase tracking-widest shadow-lg">
                                 {{ bundle.urgency }} Priority
                             </span>
                             <div class="flex items-center gap-2 text-slate-500 font-mono text-xs font-bold">

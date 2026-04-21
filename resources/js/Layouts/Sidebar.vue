@@ -696,7 +696,7 @@ const logoutRoute = computed(() => isClient.value ? route('client.logout') : (is
 </script>
 
 <template>
-    <aside class="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 z-40 transition-all duration-300 h-screen">
+    <aside class=" md:w-64 md:flex-col md:fixed md:inset-y-0 z-40 transition-all duration-300 h-screen">
         <div
             class="flex flex-col h-full bg-white/70 dark:bg-gray-950/70 backdrop-blur-xl border-r border-gray-200/40 dark:border-gray-800/40 shadow-2xl">
 
