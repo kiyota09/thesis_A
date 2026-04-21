@@ -436,11 +436,11 @@ const navItems = computed(() => {
 
         // Manager-level pages
         const managerChildren = [
-            { label: 'Dashboard', href: route('man.manager.dashboard'), icon: Factory, permKey: 'dashboard' },
-            { label: 'Production Orders', href: route('man.manager.production'), icon: ClipboardList, permKey: 'production' },
-            { label: 'Rejected Items', href: route('man.manager.rejected'), icon: XCircle, permKey: 'reject' },
+            { label: 'Dashboard', href: '/dashboard/man', icon: Factory, permKey: 'dashboard' },
+            { label: 'Production Orders', href: '/dashboard/man/production', icon: ClipboardList, permKey: 'production' },
+            { label: 'Rejected Items', href: '/dashboard/man/rejected', icon: XCircle, permKey: 'reject' },
             // NEW: Production Inventory link
-            { label: 'Production Inventory', href: route('man.inventory.index'), icon: Boxes, permKey: 'inventory' },
+            { label: 'Production Inventory', href: '/dashboard/man/inventory', icon: Boxes, permKey: 'inventory' },
             // Quality Checker as dropdown
             {
                 label: 'Quality Checker',
@@ -456,7 +456,7 @@ const navItems = computed(() => {
 
         const isManufacturingManager = userPosition === 'manager' && user.value?.role === 'MAN'
         if (isCEO || isSecretaryOrGM || isManufacturingManager) {
-            managerChildren.push({ label: 'Access Control', href: route('man.access.manage'), icon: ShieldCheck, permKey: 'access' })
+            managerChildren.push({ label: 'Access Control', href: '/dashboard/man/access/manage', icon: ShieldCheck, permKey: 'access' })
         }
 
         let children = []
@@ -696,7 +696,7 @@ const logoutRoute = computed(() => isClient.value ? route('client.logout') : (is
 </script>
 
 <template>
-    <aside class=" md:w-64 md:flex-col md:fixed md:inset-y-0 z-40 transition-all duration-300 h-screen">
+    <aside class="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 z-40 transition-all duration-300 h-screen">
         <div
             class="flex flex-col h-full bg-white/70 dark:bg-gray-950/70 backdrop-blur-xl border-r border-gray-200/40 dark:border-gray-800/40 shadow-2xl">
 

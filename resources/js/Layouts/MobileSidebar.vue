@@ -305,16 +305,22 @@ const getFilteredWorkforceChildren = () => {
 }
 
 const getFilteredManChildren = () => {
+    const isCEO                  = user.value?.role === 'CEO'
+    const isSecretaryOrGM        = user.value?.position === 'secretary' || user.value?.position === 'general_manager'
+    const isManufacturingManager = user.value?.position === 'manager' && user.value?.role === 'MAN'
+
+    // Use hardcoded URLs for middleware-protected manager routes to prevent
+    // Ziggy from crashing when called for non-manager users on render
     const qualityCheckerChildren = [
-        { label: 'Dashboard',  href: route('man.manager.checker-quality.dashboard'),  icon: LayoutDashboard },
-        { label: 'Production', href: route('man.manager.checker-quality.production'), icon: ClipboardList   },
+        { label: 'Dashboard',  href: '/dashboard/man/checker-quality',            icon: LayoutDashboard },
+        { label: 'Production', href: '/dashboard/man/checker-quality/production', icon: ClipboardList   },
     ]
 
     const managerChildren = [
-        { label: 'Dashboard',           href: route('man.manager.dashboard'),  icon: Factory,       permKey: 'dashboard'  },
-        { label: 'Production Orders',   href: route('man.manager.production'), icon: ClipboardList, permKey: 'production' },
-        { label: 'Rejected Items',      href: route('man.manager.rejected'),   icon: XCircle,       permKey: 'reject'     },
-        { label: 'Production Inventory',href: route('man.inventory.index'),    icon: Boxes,         permKey: 'inventory'  },
+        { label: 'Dashboard',            href: '/dashboard/man',            icon: Factory,      permKey: 'dashboard'  },
+        { label: 'Production Orders',    href: '/dashboard/man/production', icon: ClipboardList,permKey: 'production' },
+        { label: 'Rejected Items',       href: '/dashboard/man/rejected',   icon: XCircle,      permKey: 'reject'     },
+        { label: 'Production Inventory', href: '/dashboard/man/inventory',  icon: Boxes,        permKey: 'inventory'  },
         {
             label: 'Quality Checker',
             icon: CheckCircle2,
@@ -327,12 +333,8 @@ const getFilteredManChildren = () => {
         { label: 'Trainees',   href: route('man.trainee.index'),   icon: Award, permKey: 'trainee'   },
     ]
 
-    const isCEO             = user.value?.role === 'CEO'
-    const isSecretaryOrGM   = user.value?.position === 'secretary' || user.value?.position === 'general_manager'
-    const isManufacturingManager = user.value?.position === 'manager' && user.value?.role === 'MAN'
-
     if (isCEO || isSecretaryOrGM || isManufacturingManager) {
-        managerChildren.push({ label: 'Access Control', href: route('man.access.manage'), icon: ShieldCheck, permKey: 'access' })
+        managerChildren.push({ label: 'Access Control', href: '/dashboard/man/access/manage', icon: ShieldCheck, permKey: 'access' })
     }
 
     let children = []
@@ -638,7 +640,7 @@ const logoutRoute   = computed(() => isClient.value ? route('client.logout') : (
 </script>
 
 <template>
-    <div>
+    <div class="md:hidden">
         <!-- ─── Top Nav Bar ──────────────────────────────────────────────────── -->
         <nav class="fixed top-0 left-0 right-0 z-[60] bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 shadow-sm h-16 flex items-center justify-between px-4 transition-colors duration-300">
             <div class="flex items-center gap-3">
