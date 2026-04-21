@@ -7,7 +7,8 @@ import {
     PlayCircle, CalendarClock, Eye, Edit3, User, Mail, Phone, Briefcase,
     Send, AlertTriangle, X, UserCheck, UserMinus, ArrowRight, MessageSquare,
     Heart, BookOpen, Factory, CreditCard, Phone as PhoneIcon, MapPin as MapPinIcon,
-    User as UserIcon, Award, ShieldCheck, Pencil, Save, Loader2, Trash2, Upload, Image as ImageIcon
+    User as UserIcon, Award, ShieldCheck, Pencil, Save, Loader2, Trash2, Upload, 
+    Image as ImageIcon, Globe, ChevronRight
 } from 'lucide-vue-next';
 
 const props = defineProps({
@@ -21,8 +22,7 @@ const props = defineProps({
     }
 });
 
-const canEdit = computed(() => props.permissions?.interview === 'edit');
-
+const canEdit = computed(() => props.permissions?.interviews === 'edit');
 // Toast notification
 const showToast = ref(false);
 const toastMessage = ref('');
@@ -556,7 +556,7 @@ const passToOtherModule = () => {
             </Transition>
         </Teleport>
 
-        <!-- Schedule Modal (unchanged) -->
+        <!-- Schedule Modal -->
         <div v-if="isScheduleModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md" @click.self="closeModals">
             <div class="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden">
                 <div class="bg-blue-600 p-6 text-white">
@@ -574,7 +574,7 @@ const passToOtherModule = () => {
             </div>
         </div>
 
-        <!-- Pass Modal (unchanged) -->
+        <!-- Pass Modal -->
         <div v-if="isPassModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md" @click.self="closeModals">
             <div class="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl w-full max-w-sm overflow-hidden text-center">
                 <div class="bg-emerald-600 p-8 text-white"><div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-white/20 mb-4"><UserCheck class="h-8 w-8" /></div><h2 class="text-xl font-black uppercase">Pass Candidate</h2></div>
@@ -582,7 +582,7 @@ const passToOtherModule = () => {
             </div>
         </div>
 
-        <!-- Fail Modal (unchanged) -->
+        <!-- Fail Modal -->
         <div v-if="isFailModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md" @click.self="closeModals">
             <div class="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden">
                 <div class="bg-red-600 p-6 text-white"><h2 class="text-xl font-black uppercase">Fail Candidate</h2><p class="text-red-200 text-xs mt-1">Provide reason for failure</p></div>
@@ -590,7 +590,7 @@ const passToOtherModule = () => {
             </div>
         </div>
 
-        <!-- Pass to Other Modal (unchanged) -->
+        <!-- Pass to Other Modal -->
         <div v-if="isPassToOtherModalOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md" @click.self="closeModals">
             <div class="bg-white dark:bg-slate-800 rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden">
                 <div class="bg-purple-600 p-6 text-white"><h2 class="text-xl font-black uppercase">Pass to Another Module</h2><p class="text-purple-200 text-xs mt-1">Select department for further interview</p></div>

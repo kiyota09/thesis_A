@@ -8,18 +8,16 @@ use App\Models\MachineReport;
 use App\Models\ManufacturingInventoryItem;
 use App\Models\SalesOrder;
 use App\Models\inv\Material;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class KnittingYarnController extends ManufacturingStaffController
 {
-    /**
-     * Dashboard: show pending tasks and recent activity.
-     */
     public function index()
     {
-        $pendingCount = Fabric::where('status', 'pending')->count();
+        $pendingCount  = Fabric::where('status', 'pending')->count();
         $recentFabrics = Fabric::with('machine')
             ->where('operator_id', $this->staff()->id)
             ->latest()
@@ -28,24 +26,20 @@ class KnittingYarnController extends ManufacturingStaffController
 
         return Inertia::render('Dashboard/MAN/Employee/KnittingYarn/Index', [
             'stats' => [
-                'pending' => $pendingCount,
+                'pending'     => $pendingCount,
                 'total_today' => Fabric::whereDate('processed_at', today())->count(),
             ],
             'recentFabrics' => $recentFabrics,
         ]);
     }
 
-    /**
-     * Show the main knitting yarn page with available yarns from production inventory
-     * and assigned job orders with recipes.
-     */
     public function knittingYarn()
     {
         $machines = Machine::where('type', 'knitting')
             ->where('status', 'available')
             ->get(['id', 'machine_no']);
 
-        // Fetch only roll-based yarn items for knitting department
+        // Roll-based yarn inventory for knitting
         $yarns = ManufacturingInventoryItem::with('material')
             ->where('department', 'knitting')
             ->where('category', 'Yarn')
@@ -55,7 +49,6 @@ class KnittingYarnController extends ManufacturingStaffController
             ->where('unit_type', 'roll')
             ->get()
             ->map(function ($item) {
-                $availableUnits = $item->total_units - $item->used_units;
                 return [
                     'id'                 => $item->id,
                     'control_number'     => $item->control_number,
@@ -66,95 +59,194 @@ class KnittingYarnController extends ManufacturingStaffController
                     'used_units'         => $item->used_units,
                     'unit_type'          => $item->unit_type,
                     'unit_weight'        => $item->unit_weight,
-                    'available_units'    => $availableUnits,
+                    'available_units'    => $item->total_units - $item->used_units,
                 ];
             });
 
-        // Get job orders assigned to knitting (status in_production) with recipe
+        // All fabrics that are pending and not yet linked to any JO —
+        // shown in the Mark Done fabric-selection modal.
+        $availableFabrics = Fabric::with('machine')
+            ->where('status', 'pending')
+            ->whereNull('sales_order_id')
+            ->orderBy('created_at', 'desc')
+            ->get()
+            ->map(fn ($f) => [
+                'id'           => $f->id,
+                'code'         => $f->code,
+                'yarn_type'    => $f->yarn_type,
+                'weight'       => $f->weight,
+                'shift'        => $f->shift,
+                'processed_at' => Carbon::parse($f->processed_at)->format('M d, Y g:i A'),
+                'machine_no'   => $f->machine?->machine_no ?? 'N/A',
+                'remarks'      => $f->remarks,
+            ]);
+
+        // Job orders in production — pending first, done last
         $jobOrders = SalesOrder::with('recipe')
             ->where('status', 'in_production')
+            ->orderByRaw('knitting_done_at IS NOT NULL ASC')
+            ->orderBy('created_at', 'asc')
             ->get()
             ->map(function ($order) {
-                $recipe = $order->recipe;
+                $recipe        = $order->recipe;
                 $materialsData = [];
 
                 if ($recipe && $recipe->materials) {
                     $jsonMaterials = json_decode($recipe->materials, true);
                     if (is_array($jsonMaterials)) {
-                        $materialIds = array_keys($jsonMaterials);
-                        $materials = Material::whereIn('id', $materialIds)->get()->keyBy('id');
-                        foreach ($jsonMaterials as $materialId => $qty) {
-                            $material = $materials[$materialId] ?? null;
-                            if ($material) {
+                        $materials = Material::whereIn('id', array_keys($jsonMaterials))
+                            ->get()->keyBy('id');
+                        foreach ($jsonMaterials as $matId => $qty) {
+                            $mat = $materials[$matId] ?? null;
+                            if ($mat) {
                                 $materialsData[] = [
-                                    'name'     => $material->name,
-                                    'quantity' => $qty,
-                                    'unit'     => $material->unit,
+                                    'id'        => $mat->id,
+                                    'mat_id'    => $mat->mat_id,
+                                    'name'      => $mat->name,
+                                    'category'  => $mat->category,
+                                    'quantity'  => $qty,
+                                    'unit'      => $mat->unit,
+                                    'unit_cost' => $mat->unit_cost,
                                 ];
                             }
                         }
                     }
                 }
 
+                $formattedDoneAt = null;
+                if ($order->knitting_done_at) {
+                    $formattedDoneAt = Carbon::parse($order->knitting_done_at)
+                        ->format('M d, Y — g:i A');
+                }
+
+                // Fabrics already linked to this JO
+                $linkedFabrics = Fabric::where('sales_order_id', $order->id)
+                    ->get(['id', 'code', 'yarn_type', 'weight'])
+                    ->map(fn ($f) => [
+                        'id'        => $f->id,
+                        'code'      => $f->code,
+                        'yarn_type' => $f->yarn_type,
+                        'weight'    => $f->weight,
+                    ])->values();
+
                 return [
-                    'id'        => $order->id,
-                    'jo_number' => $order->jo_number,
-                    'color'     => $order->color,
-                    'quantity'  => $order->quantity,
-                    'yarn_type' => $order->yarn_type,
-                    'design'    => $order->design,
-                    'recipe'    => $recipe ? [
-                        'id'        => $recipe->id,
-                        'yarn_type' => $recipe->yarn_type,
-                        'materials' => $materialsData,
+                    'id'               => $order->id,
+                    'jo_number'        => $order->jo_number,
+                    'control_number'   => $order->control_number,
+                    'color'            => $order->color,
+                    'quantity'         => $order->quantity,
+                    'yarn_type'        => $order->yarn_type,
+                    'design'           => $order->design,
+                    'unit_price'       => $order->unit_price,
+                    'total_amount'     => $order->total_amount,
+                    'is_knitting_done' => !is_null($order->knitting_done_at),
+                    'knitting_done_at' => $formattedDoneAt,
+                    'linked_fabrics'   => $linkedFabrics,
+                    'recipe'           => $recipe ? [
+                        'id'           => $recipe->id,
+                        'yarn_type'    => $recipe->yarn_type,
+                        'dye_color'    => $recipe->dye_color,
+                        'weave_design' => $recipe->weave_design,
+                        'materials'    => $materialsData,
+                        'created_at'   => $recipe->created_at?->format('M d, Y'),
                     ] : null,
                 ];
             });
 
         return Inertia::render('Dashboard/MAN/Employee/KnittingYarn/KnittingYarn', [
-            'machines'  => $machines,
-            'yarns'     => $yarns,
-            'jobOrders' => $jobOrders,
+            'machines'        => $machines,
+            'yarns'           => $yarns,
+            'jobOrders'       => $jobOrders,
+            'availableFabrics' => $availableFabrics,   // NEW — fed to fabric-link modal
         ]);
     }
 
     /**
-     * Record a new fabric from the knitting machine, consuming yarns from inventory.
-     * roll_no has been removed — the fabric code serves as the unique identifier.
+     * Mark a JO as knitting-done and link the selected fabrics to it.
+     */
+    public function markDone(Request $request, $id)
+    {
+        $order = SalesOrder::where('status', 'in_production')->findOrFail($id);
+
+        if (!is_null($order->knitting_done_at)) {
+            return back()->withErrors(['error' => 'This job order is already marked as done.']);
+        }
+
+        $validated = $request->validate([
+            'fabric_ids'   => 'required|array|min:1',
+            'fabric_ids.*' => 'required|exists:fabrics,id',
+        ]);
+
+        // Link selected fabrics to this JO (only unlinked ones to prevent re-assignment)
+        $linked = Fabric::whereIn('id', $validated['fabric_ids'])
+            ->whereNull('sales_order_id')
+            ->update(['sales_order_id' => $order->id]);
+
+        $order->knitting_done_at = now();
+        $order->knitting_done_by = $this->staff()->id;
+        $order->save();
+
+        return redirect()->back()->with(
+            'message',
+            "Job Order {$order->jo_number} marked as knitting done. {$linked} fabric(s) linked."
+        );
+    }
+
+    /**
+     * Undo the knitting-done mark and unlink all fabrics from this JO.
+     */
+    public function unmarkDone(Request $request, $id)
+    {
+        $order = SalesOrder::where('status', 'in_production')->findOrFail($id);
+
+        if (is_null($order->knitting_done_at)) {
+            return back()->withErrors(['error' => 'This job order is not marked as done.']);
+        }
+
+        // Unlink all fabrics that were attached to this JO (resets them to available)
+        Fabric::where('sales_order_id', $order->id)
+            ->where('status', 'pending')           // only safe to unlink if not yet in dyeing
+            ->update(['sales_order_id' => null]);
+
+        $order->knitting_done_at = null;
+        $order->knitting_done_by = null;
+        $order->save();
+
+        return redirect()->back()->with(
+            'message',
+            "Job Order {$order->jo_number} has been re-opened. Pending fabrics unlinked."
+        );
+    }
+
+    /**
+     * Record a new fabric, consuming yarn lots from inventory.
      */
     public function storeFabric(Request $request)
     {
         $validated = $request->validate([
-            'machine_id'    => 'required|exists:machines,id',
-            'yarn_type'     => 'required|string|max:255',
-            'weight'        => 'required|numeric|min:0',
-            'remarks'       => 'nullable|string',
-            'yarns_used'    => 'required|array|min:1',
+            'machine_id'                     => 'required|exists:machines,id',
+            'yarn_type'                      => 'required|string|max:255',
+            'weight'                         => 'required|numeric|min:0',
+            'remarks'                        => 'nullable|string',
+            'yarns_used'                     => 'required|array|min:1',
             'yarns_used.*.inventory_item_id' => 'required|exists:manufacturing_inventory_items,id',
             'yarns_used.*.units_used'        => 'required|integer|min:1',
         ]);
 
-        // Pre-validate sufficient rolls for each yarn
         $insufficient = [];
         foreach ($validated['yarns_used'] as $usage) {
-            $item = ManufacturingInventoryItem::find($usage['inventory_item_id']);
-            if (!$item) {
-                return back()->withErrors(['yarns_used' => 'Invalid yarn item selected.']);
-            }
+            $item      = ManufacturingInventoryItem::find($usage['inventory_item_id']);
             $available = $item->total_units - $item->used_units;
             if ($available < $usage['units_used']) {
-                $insufficient[] = $item->material->name . ' (only ' . $available . ' rolls left)';
+                $insufficient[] = "{$item->material->name} ({$item->control_number}) — only {$available} rolls left";
             }
         }
         if (!empty($insufficient)) {
-            return back()->withErrors([
-                'yarns_used' => 'Insufficient rolls: ' . implode(', ', $insufficient),
-            ]);
+            return back()->withErrors(['yarns_used' => 'Insufficient rolls: ' . implode(', ', $insufficient)]);
         }
 
         DB::beginTransaction();
         try {
-            // Create the fabric record (roll_no removed)
             $fabric = Fabric::create([
                 'code'                   => $this->generateCode('FABRIC', Fabric::class),
                 'manufacturing_order_id' => null,
@@ -168,33 +260,30 @@ class KnittingYarnController extends ManufacturingStaffController
                 'status'                 => 'pending',
             ]);
 
-            // Consume yarns from manufacturing inventory
             foreach ($validated['yarns_used'] as $usage) {
-                $item = ManufacturingInventoryItem::findOrFail($usage['inventory_item_id']);
+                $item     = ManufacturingInventoryItem::findOrFail($usage['inventory_item_id']);
                 $consumed = $item->consumeUnits($usage['units_used']);
                 if (!$consumed) {
-                    throw new \Exception("Failed to consume units for {$item->material->name}");
+                    throw new \Exception("Failed to consume units for {$item->material->name} ({$item->control_number})");
                 }
             }
 
             DB::commit();
-            return redirect()->back()->with('message', 'Fabric recorded successfully and yarn inventory updated.');
+            return redirect()->back()->with(
+                'message',
+                'Fabric ' . $fabric->code . ' recorded. Yarn inventory updated for ' . count($validated['yarns_used']) . ' lot(s).'
+            );
         } catch (\Exception $e) {
             DB::rollBack();
             return back()->withErrors(['error' => 'Failed to record fabric: ' . $e->getMessage()]);
         }
     }
 
-    /**
-     * Show list of reported machines and allow reporting.
-     */
     public function reports()
     {
-        $machines = Machine::where('type', 'knitting')->get(['id', 'machine_no', 'status']);
+        $machines  = Machine::where('type', 'knitting')->get(['id', 'machine_no', 'status']);
         $myReports = MachineReport::where('reported_by', $this->staff()->id)
-            ->with('machine')
-            ->latest()
-            ->get();
+            ->with('machine')->latest()->get();
 
         return Inertia::render('Dashboard/MAN/Employee/KnittingYarn/Reports', [
             'machines'  => $machines,
@@ -202,9 +291,6 @@ class KnittingYarnController extends ManufacturingStaffController
         ]);
     }
 
-    /**
-     * Report a machine issue.
-     */
     public function reportMachine(Request $request)
     {
         $validated = $request->validate([

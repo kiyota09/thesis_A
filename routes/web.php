@@ -64,7 +64,7 @@ use App\Http\Controllers\logistics\TraineeController as LogisticsTraineeControll
 use App\Http\Controllers\man\ManAccessController;
 use App\Http\Controllers\man\Manager\ManufacturingManagerController;
 use App\Http\Controllers\man\ManDashboardController;
-use App\Http\Controllers\man\ManufacturingInventoryController; // <-- ADDED
+use App\Http\Controllers\man\ManufacturingInventoryController;
 use App\Http\Controllers\man\Staff\CheckerQualityController;
 use App\Http\Controllers\man\Staff\DyeingColorController;
 use App\Http\Controllers\man\Staff\DyeingFabricSoftenerController;
@@ -78,6 +78,7 @@ use App\Http\Controllers\ord\OrdAccessController;
 use App\Http\Controllers\ord\OrdDeliveryController;
 use App\Http\Controllers\ord\OrdOrdersController;
 use App\Http\Controllers\ord\OrdProductionsController;
+use App\Http\Controllers\pro\ProAccessController;
 use App\Http\Controllers\pro\ProcurementController;
 use App\Http\Controllers\pro\ProDashboardController;
 use App\Http\Controllers\ProfileController;
@@ -348,8 +349,7 @@ Route::prefix('dashboard/workforce')->name('workforce.')->middleware(['auth', 'v
     Route::post('/absent/{id}/suspend', [AbsentController::class, 'suspend'])->name('absent.suspend');
     Route::get('/access', [WorkforceAccessController::class, 'index'])->name('access');
     Route::post('/access/update', [WorkforceAccessController::class, 'update'])->name('access.update');
-
-    });
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -370,7 +370,7 @@ Route::prefix('dashboard/scm')->name('scm.')->middleware(['auth', 'verified', 'm
     Route::get('/procurement-orders', [ScmProcurementOrderController::class, 'index'])->name('procurement-orders');
     Route::post('/procurement-orders/{materialRequest}/send', [ScmProcurementOrderController::class, 'sendToProcurementModule'])->name('procurement-order.send');
     Route::post('/scm/procurement-order/send-bundle', [ScmProcurementOrderController::class, 'sendBundle'])
-    ->name('scm.procurement-order.send-bundle');
+        ->name('scm.procurement-order.send-bundle');
 
     // Vendor Management
     Route::get('/vendors', [ScmVendorController::class, 'index'])->name('vendors');
@@ -417,7 +417,7 @@ Route::prefix('dashboard/man')->name('man.')->middleware(['auth', 'verified', 'm
     Route::middleware(['can.access.man.manager'])->group(function () {
         Route::get('/access/manage', [ManAccessController::class, 'index'])->name('access.manage');
         Route::post('/access/assign-supervisor', [ManAccessController::class, 'assignSupervisor'])->name('access.assign-supervisor');
-        
+
         // Manufacturing Inventory (Production Inventory)
         Route::get('/inventory', [ManufacturingInventoryController::class, 'index'])->name('inventory.index');
         Route::post('/inventory/{item}/container', [ManufacturingInventoryController::class, 'updateContainer'])->name('inventory.container.update');
@@ -435,6 +435,8 @@ Route::prefix('dashboard/man')->name('man.')->middleware(['auth', 'verified', 'm
         Route::get('/', [ManufacturingManagerController::class, 'index'])->name('manager.dashboard');
         Route::get('/production', [ManufacturingManagerController::class, 'production'])->name('manager.production');
         Route::get('/rejected', [ManufacturingManagerController::class, 'rejected'])->name('manager.rejected');
+        Route::post('/rejected/{fabric}/recolor', [ManufacturingManagerController::class, 'recolorFabric'])->name('manager.rejected.recolor');
+        Route::post('/rejected/{fabric}/total-reject', [ManufacturingManagerController::class, 'rejectFabricTotally'])->name('manager.rejected.total-reject');
         Route::post('/orders/{id}/forward-to-checker', [ManufacturingManagerController::class, 'forwardToChecker'])->name('manager.forward-to-checker');
         Route::post('/staff/{id}/update-role', [ManufacturingManagerController::class, 'updateStaffRole'])->name('manager.update-staff-role');
         Route::post('/packages/{id}/send-to-logistics', [ManufacturingManagerController::class, 'sendToLogistics'])->name('manager.send-to-logistics');
@@ -472,6 +474,8 @@ Route::prefix('dashboard/man')->name('man.')->middleware(['auth', 'verified', 'm
                 Route::post('/fabric', 'storeFabric')->name('store-fabric');
                 Route::get('/reports', 'reports')->name('reports');
                 Route::post('/machine-report', 'reportMachine')->name('report-machine');
+                Route::post('mark-done/{id}', 'markDone')->name('mark-done');
+                Route::post('unmark-done/{id}', 'unmarkDone')->name('unmark-done');
             });
 
         Route::prefix('dyeing-color')->name('staff.dyeing-color.')->controller(DyeingColorController::class)
@@ -558,6 +562,7 @@ Route::prefix('dashboard/man')->name('man.')->middleware(['auth', 'verified', 'm
                 Route::post('/form/{id}/pack', 'packForm')->name('pack-form');
                 Route::post('/form/{id}/reject', 'rejectForm')->name('reject-form');
                 Route::post('/package/{id}/assign-to-order', 'assignPackageToOrder')->name('assign-package');
+                Route::post('/package/{id}/push-to-logistics', 'pushToLogistics')->name('push-to-logistics');
             });
     });
 });
@@ -923,7 +928,10 @@ Route::prefix('dashboard/pro')->name('pro.')->middleware(['auth', 'verified'])->
         Route::post('/quotations/{responseId}/decline', [ProcurementController::class, 'declineQuotation'])->name('quotations.decline');
         Route::get('/receipt', [ProcurementController::class, 'receipt'])->name('receipt');
         Route::post('/purchase-orders/{poId}/send', [ProcurementController::class, 'sendPurchaseOrder'])->name('purchase-orders.send');
-        
+        Route::get('/access', [ProAccessController::class, 'index'])->name('access.index')
+            ->middleware('role:CEO');
+        Route::post('/access/update', [ProAccessController::class, 'update'])->name('access.update')
+            ->middleware('role:CEO');
     });
 });
 

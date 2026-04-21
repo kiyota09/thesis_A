@@ -3,19 +3,90 @@ import { ref, computed } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import {
-    Plus, DollarSign, Calendar, X, CheckCircle2, AlertCircle,
-    HelpCircle, ArrowRight, UserCheck, Building2, FileText, Upload, Clock,
-    MessageSquare, Video, MapPin, Download, Eye, Trash2, ChevronDown, ChevronUp,
-    ArrowUpRight, Filter, Search, ChevronRight, ArrowRightCircle, MoveRight,
-    Check, XCircle
+    Plus, Calendar, X, CheckCircle2, AlertCircle, AlertTriangle,
+    MessageSquare, Video, MapPin, FileText, Upload, ChevronDown, ChevronUp,
+    ArrowUpRight, Search, MoveRight, Check, XCircle, UserCheck, Building2,
+    Trash2, Info, Bell
 } from 'lucide-vue-next';
 
 const props = defineProps({
     leads: Array,
-    permissions: { type: Object, default: () => ({}) }
+    permissions: { type: Object, default: () => ({}) },
+    flash: { type: Object, default: () => ({}) }
 });
 
 const canEdit = computed(() => props.permissions?.leads === 'edit');
+
+// ─────────────────────────────────────────────────
+// Toast Notification System
+// ─────────────────────────────────────────────────
+const toast = ref({
+    show: false,
+    type: 'success', // success, error, warning, info
+    title: '',
+    message: '',
+});
+
+const showToast = (type, title, message) => {
+    toast.value = {
+        show: true,
+        type,
+        title,
+        message,
+    };
+    setTimeout(() => {
+        toast.value.show = false;
+    }, 5000);
+};
+
+const hideToast = () => {
+    toast.value.show = false;
+};
+
+// ─────────────────────────────────────────────────
+// Confirmation Modal System
+// ─────────────────────────────────────────────────
+const confirmModal = ref({
+    show: false,
+    type: 'warning', // warning, danger, info
+    title: '',
+    message: '',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    onConfirm: null,
+    isLoading: false,
+});
+
+const showConfirm = (options) => {
+    confirmModal.value = {
+        show: true,
+        type: options.type || 'warning',
+        title: options.title || 'Are you sure?',
+        message: options.message || 'This action cannot be undone.',
+        confirmText: options.confirmText || 'Confirm',
+        cancelText: options.cancelText || 'Cancel',
+        onConfirm: options.onConfirm,
+        isLoading: false,
+    };
+};
+
+const hideConfirm = () => {
+    confirmModal.value.show = false;
+    confirmModal.value.onConfirm = null;
+    confirmModal.value.isLoading = false;
+};
+
+const handleConfirm = async () => {
+    if (confirmModal.value.onConfirm) {
+        confirmModal.value.isLoading = true;
+        try {
+            await confirmModal.value.onConfirm();
+        } catch (error) {
+            console.error('Confirmation action failed:', error);
+        }
+    }
+    hideConfirm();
+};
 
 // ─────────────────────────────────────────────────
 // Tab State & Lead Grouping
@@ -59,22 +130,23 @@ const currentLeads = computed(() => leadsByStatus.value[activeTab.value] || []);
 // ─────────────────────────────────────────────────
 const showCreateModal           = ref(false);
 const showClientConversionModal = ref(false);
-const showNoteModal             = ref(false);
+const showNoteModal              = ref(false);
 const showInterviewModal        = ref(false);
 const showFinalizeModal         = ref(false);
-const showMoveConfirmModal      = ref(false);
-const currentLead               = ref(null);
+const currentLead                = ref(null);
 const pendingMoveNextStage      = ref(null);
 
 const finalizeFile   = ref(null);
 const finalizeAction = ref(null);
 const rejectReason   = ref('');
 const isUploading    = ref(false);
-const isSubmitting   = ref(false);
+
+// Validation errors state
+const formErrors = ref({});
+const conversionErrors = ref({});
 
 const form = useForm({
     company_name: '', contact_person: '', email: '', phone: '',
-    interest_fabric: 'Cotton', estimated_value: '',
 });
 
 const conversionForm = useForm({
@@ -87,6 +159,64 @@ const interviewForm = useForm({ scheduled_at: '', location: '', notes: '' });
 const rejectForm    = useForm({ reject_reason: '' });
 
 // ─────────────────────────────────────────────────
+// Validation Helpers
+// ─────────────────────────────────────────────────
+const validatePhone = (phone) => {
+    // Validates that the input consists of exactly 11 digits
+    const phoneRegex = /^\d{11}$/;
+    return phoneRegex.test(phone);
+};
+
+const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+};
+
+const validateForm = () => {
+    const errors = {};
+    
+    if (!form.company_name.trim()) {
+        errors.company_name = 'Company name is required';
+    } else if (form.company_name.length < 2) {
+        errors.company_name = 'Company name must be at least 2 characters';
+    }
+    
+    if (!form.contact_person.trim()) {
+        errors.contact_person = 'Contact person is required';
+    }
+    
+    if (!form.email.trim()) {
+        errors.email = 'Email is required';
+    } else if (!validateEmail(form.email)) {
+        errors.email = 'Please enter a valid email address';
+    }
+    
+    if (!form.phone.trim()) {
+        errors.phone = 'Phone number is required';
+    } else if (!validatePhone(form.phone)) {
+        errors.phone = 'Phone number must be exactly 11 digits (e.g., 09123456789)';
+    }
+    
+    formErrors.value = errors;
+    return Object.keys(errors).length === 0;
+};
+
+const validateConversionForm = () => {
+    const errors = {};
+    
+    if (!conversionForm.tin_number.trim()) {
+        errors.tin_number = 'TIN number is required';
+    }
+    
+    if (!conversionForm.company_address.trim()) {
+        errors.company_address = 'Company address is required';
+    }
+    
+    conversionErrors.value = errors;
+    return Object.keys(errors).length === 0;
+};
+
+// ─────────────────────────────────────────────────
 // Stage Movement
 // ─────────────────────────────────────────────────
 const getNextStage = (currentStatus) => {
@@ -96,21 +226,73 @@ const getNextStage = (currentStatus) => {
 };
 
 const openMoveConfirm = (lead) => {
-    if (!canEdit.value) return;
+    if (!canEdit.value) {
+        showToast('error', 'Permission Denied', 'You do not have permission to move leads.');
+        return;
+    }
     currentLead.value = lead;
     pendingMoveNextStage.value = getNextStage(lead.status);
-    showMoveConfirmModal.value = true;
+    
+    showConfirm({
+        type: 'info',
+        title: 'Confirm Stage Change',
+        message: `Move "${lead.company_name}" from ${lead.status} to ${pendingMoveNextStage.value}?`,
+        confirmText: 'Move Lead',
+        onConfirm: () => confirmMove()
+    });
 };
 
 const confirmMove = () => {
     if (!currentLead.value || !pendingMoveNextStage.value) return;
-    router.patch(route('crm.lead.status', currentLead.value.id), { status: pendingMoveNextStage.value }, {
+    
+    router.patch(route('crm.lead.status', currentLead.value.id), { 
+        status: pendingMoveNextStage.value 
+    }, {
         preserveScroll: true,
         onSuccess: () => {
-            showMoveConfirmModal.value = false;
             currentLead.value = null;
             pendingMoveNextStage.value = null;
+            showToast('success', 'Success', 'Lead moved successfully.');
             router.reload({ only: ['leads'] });
+        },
+        onError: (errors) => {
+            showToast('error', 'Error', Object.values(errors).join(', '));
+        }
+    });
+};
+
+// ─────────────────────────────────────────────────
+// Delete Lead
+// ─────────────────────────────────────────────────
+const openDeleteConfirm = (lead) => {
+    if (!canEdit.value) {
+        showToast('error', 'Permission Denied', 'You do not have permission to delete leads.');
+        return;
+    }
+    currentLead.value = lead;
+    
+    showConfirm({
+        type: 'danger',
+        title: 'Delete Lead',
+        message: `Are you sure you want to permanently delete "${lead.company_name}"? This action cannot be undone.`,
+        confirmText: 'Delete Permanently',
+        onConfirm: () => confirmDelete()
+    });
+};
+
+const confirmDelete = () => {
+    if (!currentLead.value) return;
+    
+    router.delete(route('crm.lead.destroy', currentLead.value.id), {
+        preserveScroll: true,
+        onSuccess: () => {
+            const leadName = currentLead.value.company_name;
+            currentLead.value = null;
+            showToast('success', 'Success', `Lead "${leadName}" has been deleted.`);
+            router.reload({ only: ['leads'] });
+        },
+        onError: (errors) => {
+            showToast('error', 'Error', Object.values(errors).join(', '));
         }
     });
 };
@@ -119,7 +301,10 @@ const confirmMove = () => {
 // Finalization
 // ─────────────────────────────────────────────────
 const openFinalizeModal = (lead) => {
-    if (!canEdit.value) return;
+    if (!canEdit.value) {
+        showToast('error', 'Permission Denied', 'You do not have permission to finalize leads.');
+        return;
+    }
     currentLead.value = lead;
     finalizeFile.value = null;
     finalizeAction.value = null;
@@ -130,7 +315,10 @@ const openFinalizeModal = (lead) => {
 const handleFileChange = (event) => {
     const file = event.target.files[0];
     if (file) {
-        if (file.size > 2 * 1024 * 1024) { alert('File size must be less than 2MB'); return; }
+        if (file.size > 5 * 1024 * 1024) { 
+            showToast('error', 'File Too Large', 'File size must be less than 5MB.');
+            return; 
+        }
         finalizeFile.value = file;
     }
 };
@@ -142,24 +330,73 @@ const uploadFinalizeFile = () => {
     formData.append('file', finalizeFile.value);
     router.post(route('crm.lead.upload-file', currentLead.value.id), formData, {
         preserveScroll: true,
-        onSuccess: () => { finalizeFile.value = null; isUploading.value = false; router.reload({ only: ['leads'] }); },
-        onError:   () => { isUploading.value = false; alert('Upload failed'); }
+        onSuccess: () => { 
+            finalizeFile.value = null; 
+            isUploading.value = false;
+            showToast('success', 'Success', 'File uploaded successfully.');
+            router.reload({ only: ['leads'] }); 
+        },
+        onError: (errors) => { 
+            isUploading.value = false; 
+            showToast('error', 'Upload Failed', Object.values(errors).join(', '));
+        }
     });
 };
 
 const submitFinalize = () => {
-    if (!finalizeAction.value) return;
+    if (!finalizeAction.value) {
+        showToast('warning', 'Action Required', 'Please select a decision (Accept or Reject).');
+        return;
+    }
+    
     if (finalizeAction.value === 'accept') {
-        router.post(route('crm.lead.accept', currentLead.value.id), {}, {
-            preserveScroll: true,
-            onSuccess: () => { showFinalizeModal.value = false; currentLead.value = null; router.reload({ only: ['leads'] }); }
+        showConfirm({
+            type: 'success',
+            title: 'Accept Lead',
+            message: `Accept "${currentLead.value.company_name}" and move to Closed-Won?`,
+            confirmText: 'Accept Lead',
+            onConfirm: () => {
+                router.post(route('crm.lead.accept', currentLead.value.id), {}, {
+                    preserveScroll: true,
+                    onSuccess: () => { 
+                        showFinalizeModal.value = false; 
+                        currentLead.value = null;
+                        showToast('success', 'Success', 'Lead accepted and moved to Closed-Won.');
+                        router.reload({ only: ['leads'] }); 
+                    },
+                    onError: (errors) => {
+                        showToast('error', 'Error', Object.values(errors).join(', '));
+                    }
+                });
+            }
         });
     } else if (finalizeAction.value === 'reject') {
-        if (!rejectReason.value.trim()) { alert('Please provide a reason for rejection'); return; }
-        rejectForm.reject_reason = rejectReason.value;
-        rejectForm.post(route('crm.lead.reject', currentLead.value.id), {
-            preserveScroll: true,
-            onSuccess: () => { showFinalizeModal.value = false; currentLead.value = null; rejectForm.reset(); router.reload({ only: ['leads'] }); }
+        if (!rejectReason.value.trim()) { 
+            showToast('warning', 'Reason Required', 'Please provide a reason for rejection.');
+            return; 
+        }
+        
+        showConfirm({
+            type: 'danger',
+            title: 'Reject Lead',
+            message: `Reject "${currentLead.value.company_name}"?`,
+            confirmText: 'Reject Lead',
+            onConfirm: () => {
+                rejectForm.reject_reason = rejectReason.value;
+                rejectForm.post(route('crm.lead.reject', currentLead.value.id), {
+                    preserveScroll: true,
+                    onSuccess: () => { 
+                        showFinalizeModal.value = false; 
+                        currentLead.value = null; 
+                        rejectForm.reset();
+                        showToast('success', 'Success', 'Lead rejected and marked as Lost.');
+                        router.reload({ only: ['leads'] }); 
+                    },
+                    onError: (errors) => {
+                        showToast('error', 'Error', Object.values(errors).join(', '));
+                    }
+                });
+            }
         });
     }
 };
@@ -168,14 +405,20 @@ const submitFinalize = () => {
 // Other Modals
 // ─────────────────────────────────────────────────
 const openNoteModal = (lead) => {
-    if (!canEdit.value) return;
+    if (!canEdit.value) {
+        showToast('error', 'Permission Denied', 'You do not have permission to add notes.');
+        return;
+    }
     currentLead.value = lead;
     noteForm.note = '';
     showNoteModal.value = true;
 };
 
 const openInterviewModal = (lead) => {
-    if (!canEdit.value) return;
+    if (!canEdit.value) {
+        showToast('error', 'Permission Denied', 'You do not have permission to schedule interviews.');
+        return;
+    }
     currentLead.value = lead;
     interviewForm.reset();
     showInterviewModal.value = true;
@@ -185,7 +428,6 @@ const closeAllModals = () => {
     showNoteModal.value = false;
     showInterviewModal.value = false;
     showFinalizeModal.value = false;
-    showMoveConfirmModal.value = false;
     currentLead.value = null;
     finalizeFile.value = null;
     finalizeAction.value = null;
@@ -193,48 +435,132 @@ const closeAllModals = () => {
 };
 
 const addNote = () => {
+    if (!noteForm.note.trim()) {
+        showToast('warning', 'Note Required', 'Please enter a note.');
+        return;
+    }
+    
     noteForm.post(route('crm.lead.add-note', currentLead.value.id), {
         preserveScroll: true,
-        onSuccess: () => { closeAllModals(); noteForm.reset(); router.reload({ only: ['leads'] }); },
+        onSuccess: () => { 
+            closeAllModals(); 
+            noteForm.reset();
+            showToast('success', 'Success', 'Note added successfully.');
+            router.reload({ only: ['leads'] }); 
+        },
+        onError: (errors) => {
+            showToast('error', 'Error', Object.values(errors).join(', '));
+        }
     });
 };
 
 const scheduleInterview = () => {
+    if (!interviewForm.scheduled_at) {
+        showToast('warning', 'Date Required', 'Please select a date and time for the interview.');
+        return;
+    }
+    
+    const selectedDate = new Date(interviewForm.scheduled_at);
+    const now = new Date();
+    
+    if (selectedDate < now) {
+        showConfirm({
+            type: 'warning',
+            title: 'Past Date Selected',
+            message: 'The selected date is in the past. Are you sure you want to schedule this interview?',
+            confirmText: 'Schedule Anyway',
+            onConfirm: () => submitInterview()
+        });
+    } else {
+        submitInterview();
+    }
+};
+
+const submitInterview = () => {
     interviewForm.post(route('crm.lead.schedule-interview', currentLead.value.id), {
         preserveScroll: true,
-        onSuccess: () => { closeAllModals(); interviewForm.reset(); router.reload({ only: ['leads'] }); },
+        onSuccess: () => { 
+            closeAllModals(); 
+            interviewForm.reset();
+            showToast('success', 'Success', 'Interview scheduled successfully.');
+            router.reload({ only: ['leads'] }); 
+        },
+        onError: (errors) => {
+            showToast('error', 'Error', Object.values(errors).join(', '));
+        }
     });
 };
 
 const openConversionModal = (lead) => {
-    if (!canEdit.value) return;
+    if (!canEdit.value) {
+        showToast('error', 'Permission Denied', 'You do not have permission to convert leads.');
+        return;
+    }
     conversionForm.lead_id        = lead.id;
     conversionForm.company_name   = lead.company_name;
     conversionForm.contact_person = lead.contact_person;
     conversionForm.email          = lead.email;
     conversionForm.phone          = lead.phone;
+    conversionForm.tin_number      = '';
+    conversionForm.company_address = '';
+    conversionErrors.value = {};
     showClientConversionModal.value = true;
 };
 
 const submitConversion = () => {
-    conversionForm.post(route('crm.lead.convert'), {
-        preserveScroll: true,
-        onSuccess: () => { showClientConversionModal.value = false; conversionForm.reset(); router.reload({ only: ['leads'] }); },
+    if (!validateConversionForm()) {
+        showToast('error', 'Validation Error', 'Please fill in all required fields.');
+        return;
+    }
+    
+    showConfirm({
+        type: 'info',
+        title: 'Convert to Client',
+        message: `Convert "${conversionForm.company_name}" to a business client?`,
+        confirmText: 'Convert',
+        onConfirm: () => {
+            conversionForm.post(route('crm.lead.convert'), {
+                preserveScroll: true,
+                onSuccess: () => { 
+                    showClientConversionModal.value = false; 
+                    conversionForm.reset();
+                    showToast('success', 'Success', 'Lead converted to client successfully.');
+                    router.reload({ only: ['leads'] }); 
+                },
+                onError: (errors) => {
+                    showToast('error', 'Conversion Failed', Object.values(errors).join(', '));
+                }
+            });
+        }
     });
 };
 
 const submit = () => {
+    if (!validateForm()) {
+        showToast('error', 'Validation Error', 'Please correct the errors in the form.');
+        return;
+    }
+    
     form.post(route('crm.lead.store'), {
-        onSuccess: () => { showCreateModal.value = false; form.reset(); },
+        onSuccess: () => { 
+            showCreateModal.value = false; 
+            form.reset();
+            formErrors.value = {};
+            showToast('success', 'Success', 'New lead created successfully.');
+        },
+        onError: (errors) => {
+            if (errors.email) {
+                showToast('error', 'Duplicate Email', errors.email);
+            } else {
+                showToast('error', 'Error', Object.values(errors).join(', '));
+            }
+        }
     });
 };
 
 // ─────────────────────────────────────────────────
 // UI Helpers
 // ─────────────────────────────────────────────────
-const formatCurrency = (value) =>
-    new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value || 0);
-
 const formatDateTime = (date) => new Date(date).toLocaleString();
 
 const showNotes      = ref({});
@@ -244,22 +570,140 @@ const toggleInterviews = (id) => { showInterviews.value[id] = !showInterviews.va
 
 // Stage accent colors
 const stageAccent = (status) => ({
-    'Inquiry':       { bg: 'bg-blue-600',   light: 'bg-blue-50',   text: 'text-blue-700',   ring: 'ring-blue-200',   dot: 'bg-blue-500'   },
-    'Negotiation':   { bg: 'bg-amber-400',  light: 'bg-amber-50',  text: 'text-amber-700',  ring: 'ring-amber-200',  dot: 'bg-amber-400'  },
-    'Approval Sent': { bg: 'bg-slate-700',  light: 'bg-slate-50',  text: 'text-slate-700',  ring: 'ring-slate-200',  dot: 'bg-slate-500'  },
-    'Closed-Won':    { bg: 'bg-blue-600',   light: 'bg-blue-50',   text: 'text-blue-700',   ring: 'ring-blue-200',   dot: 'bg-blue-500'   },
-}[status] || { bg: 'bg-slate-400', light: 'bg-slate-50', text: 'text-slate-600', ring: 'ring-slate-200', dot: 'bg-slate-400' });
+    'Inquiry':       { bg: 'bg-blue-600',   light: 'bg-blue-50',   text: 'text-blue-700' },
+    'Negotiation':   { bg: 'bg-amber-400',  light: 'bg-amber-50',  text: 'text-amber-700' },
+    'Approval Sent': { bg: 'bg-slate-700',  light: 'bg-slate-50',  text: 'text-slate-700' },
+    'Closed-Won':    { bg: 'bg-blue-600',   light: 'bg-blue-50',   text: 'text-blue-700' },
+}[status] || { bg: 'bg-slate-400', light: 'bg-slate-50', text: 'text-slate-600' });
+
+// Toast icon mapping
+const toastIcon = (type) => {
+    switch(type) {
+        case 'success': return CheckCircle2;
+        case 'error': return XCircle;
+        case 'warning': return AlertTriangle;
+        default: return Info;
+    }
+};
+
+const toastColors = (type) => {
+    switch(type) {
+        case 'success': return 'bg-emerald-50 border-emerald-200 text-emerald-800';
+        case 'error': return 'bg-red-50 border-red-200 text-red-800';
+        case 'warning': return 'bg-amber-50 border-amber-200 text-amber-800';
+        default: return 'bg-blue-50 border-blue-200 text-blue-800';
+    }
+};
+
+const confirmColors = (type) => {
+    switch(type) {
+        case 'danger': return { bg: 'bg-red-600 hover:bg-red-700', icon: 'bg-red-100 text-red-600' };
+        case 'warning': return { bg: 'bg-amber-500 hover:bg-amber-600', icon: 'bg-amber-100 text-amber-600' };
+        case 'success': return { bg: 'bg-emerald-600 hover:bg-emerald-700', icon: 'bg-emerald-100 text-emerald-600' };
+        default: return { bg: 'bg-blue-600 hover:bg-blue-700', icon: 'bg-blue-100 text-blue-600' };
+    }
+};
 </script>
 
 <template>
     <AuthenticatedLayout title="Lead & Deal Workspace">
         <div class="min-h-screen bg-white">
 
-            <!-- ── Page Header ── -->
+            <Teleport to="body">
+                <Transition
+                    enter-active-class="transition duration-300 ease-out"
+                    enter-from-class="opacity-0 translate-x-4"
+                    enter-to-class="opacity-100 translate-x-0"
+                    leave-active-class="transition duration-200 ease-in"
+                    leave-from-class="opacity-100 translate-x-0"
+                    leave-to-class="opacity-0 translate-x-4"
+                >
+                    <div
+                        v-if="toast.show"
+                        :class="['fixed top-20 right-4 z-[200] max-w-md w-full rounded-xl border shadow-lg p-4', toastColors(toast.type)]"
+                    >
+                        <div class="flex items-start gap-3">
+                            <div class="flex-shrink-0">
+                                <component :is="toastIcon(toast.type)" class="w-5 h-5" />
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-semibold">{{ toast.title }}</p>
+                                <p class="text-sm mt-0.5 opacity-90">{{ toast.message }}</p>
+                            </div>
+                            <button @click="hideToast" class="flex-shrink-0 opacity-60 hover:opacity-100 transition">
+                                <X class="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+                </Transition>
+            </Teleport>
+
+            <Teleport to="body">
+                <Transition
+                    enter-active-class="transition duration-200 ease-out"
+                    enter-from-class="opacity-0"
+                    enter-to-class="opacity-100"
+                    leave-active-class="transition duration-150 ease-in"
+                    leave-from-class="opacity-100"
+                    leave-to-class="opacity-0"
+                >
+                    <div v-if="confirmModal.show" class="fixed inset-0 z-[180] flex items-end sm:items-center justify-center p-0 sm:p-4">
+                        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="hideConfirm"></div>
+                        <Transition
+                            enter-active-class="transition duration-200 ease-out"
+                            enter-from-class="translate-y-4 sm:scale-95 opacity-0"
+                            enter-to-class="translate-y-0 sm:scale-100 opacity-100"
+                        >
+                            <div v-if="confirmModal.show" class="relative bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl overflow-hidden">
+                                <div class="flex justify-center pt-3 pb-1 sm:hidden">
+                                    <div class="w-10 h-1 bg-slate-200 rounded-full"></div>
+                                </div>
+                                
+                                <div class="p-6">
+                                    <div class="flex items-center gap-4">
+                                        <div :class="['w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0', confirmColors(confirmModal.type).icon]">
+                                            <AlertTriangle v-if="confirmModal.type === 'warning' || confirmModal.type === 'danger'" class="w-6 h-6" />
+                                            <Info v-else class="w-6 h-6" />
+                                        </div>
+                                        <div>
+                                            <h3 class="text-lg font-semibold text-slate-900">{{ confirmModal.title }}</h3>
+                                            <p class="text-sm text-slate-500 mt-1">{{ confirmModal.message }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="px-6 py-4 bg-slate-50 border-t border-slate-100 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+                                    <button 
+                                        @click="hideConfirm" 
+                                        :disabled="confirmModal.isLoading"
+                                        class="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-all disabled:opacity-50"
+                                    >
+                                        {{ confirmModal.cancelText }}
+                                    </button>
+                                    <button 
+                                        @click="handleConfirm" 
+                                        :disabled="confirmModal.isLoading"
+                                        :class="['w-full sm:w-auto px-5 py-2.5 text-sm font-semibold text-white rounded-xl transition-all disabled:opacity-50 inline-flex items-center justify-center gap-2', confirmColors(confirmModal.type).bg]"
+                                    >
+                                        <span v-if="confirmModal.isLoading" class="inline-flex items-center gap-2">
+                                            <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+                                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            Processing...
+                                        </span>
+                                        <span v-else>{{ confirmModal.confirmText }}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </Transition>
+                    </div>
+                </Transition>
+            </Teleport>
+
             <div class="border-b border-slate-100 bg-white sticky top-0 z-10">
                 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
                     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <!-- Title -->
                         <div class="flex items-center gap-3">
                             <div class="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0">
                                 <ArrowUpRight class="w-4 h-4 text-white" />
@@ -269,9 +713,7 @@ const stageAccent = (status) => ({
                                 <p class="text-xs text-slate-400 hidden sm:block">Manage leads in a structured queue — oldest first</p>
                             </div>
                         </div>
-                        <!-- Controls -->
                         <div class="flex items-center gap-2 flex-wrap">
-                            <!-- Access badge -->
                             <span v-if="!canEdit && permissions.leads === 'view'"
                                 class="text-xs font-medium text-amber-700 bg-amber-50 ring-1 ring-amber-200 px-2.5 py-1 rounded-full">
                                 View only
@@ -280,7 +722,6 @@ const stageAccent = (status) => ({
                                 class="text-xs font-medium text-blue-700 bg-blue-50 ring-1 ring-blue-200 px-2.5 py-1 rounded-full hidden sm:inline-flex">
                                 Full access
                             </span>
-                            <!-- Search -->
                             <div class="relative">
                                 <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                                 <input
@@ -290,7 +731,6 @@ const stageAccent = (status) => ({
                                     class="pl-8 pr-3 py-2 border border-slate-200 rounded-xl text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 w-40 sm:w-52 transition-all"
                                 />
                             </div>
-                            <!-- Create -->
                             <button
                                 v-if="canEdit"
                                 @click="showCreateModal = true"
@@ -303,10 +743,8 @@ const stageAccent = (status) => ({
                 </div>
             </div>
 
-            <!-- ── Main ── -->
             <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
 
-                <!-- Stage Tabs -->
                 <div class="overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
                     <div class="flex gap-1.5 min-w-max">
                         <button
@@ -332,7 +770,6 @@ const stageAccent = (status) => ({
                     </div>
                 </div>
 
-                <!-- Empty State -->
                 <div v-if="currentLeads.length === 0" class="py-20 text-center">
                     <div class="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
                         <AlertCircle class="w-7 h-7 text-slate-300" />
@@ -341,22 +778,18 @@ const stageAccent = (status) => ({
                     <p class="text-xs text-slate-400 mt-1">Create a new deal to start the pipeline.</p>
                 </div>
 
-                <!-- Lead Cards -->
                 <div class="space-y-3">
                     <div
                         v-for="lead in currentLeads"
                         :key="lead.id"
                         class="bg-white border border-slate-100 rounded-2xl hover:border-slate-200 hover:shadow-sm transition-all duration-200 overflow-hidden"
                     >
-                        <!-- Colored left accent bar -->
                         <div class="flex">
                             <div :class="stageAccent(lead.status).bg" class="w-1 flex-shrink-0 rounded-l-2xl"></div>
 
                             <div class="flex-1 p-4 sm:p-5">
-                                <!-- Top row -->
                                 <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                                     <div class="flex items-start gap-3 min-w-0">
-                                        <!-- Avatar -->
                                         <div :class="[stageAccent(lead.status).light, stageAccent(lead.status).text]"
                                             class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-sm font-bold">
                                             {{ lead.company_name?.charAt(0)?.toUpperCase() }}
@@ -366,8 +799,15 @@ const stageAccent = (status) => ({
                                             <p class="text-xs text-slate-400 mt-0.5 truncate">{{ lead.contact_person }} · {{ lead.email }}</p>
                                         </div>
                                     </div>
-                                    <!-- Primary action button -->
-                                    <div class="flex-shrink-0">
+                                    <div class="flex-shrink-0 flex items-center gap-2">
+                                        <button
+                                            v-if="canEdit"
+                                            @click="openDeleteConfirm(lead)"
+                                            class="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl text-xs font-medium transition-colors"
+                                            title="Delete Lead"
+                                        >
+                                            <Trash2 class="w-3.5 h-3.5" />
+                                        </button>
                                         <button
                                             v-if="canEdit && (lead.status === 'Inquiry' || lead.status === 'Negotiation')"
                                             @click="openMoveConfirm(lead)"
@@ -385,16 +825,11 @@ const stageAccent = (status) => ({
                                     </div>
                                 </div>
 
-                                <!-- Value / Fabric row -->
                                 <div class="flex items-center gap-2 mt-3">
-                                    <span class="text-sm font-semibold text-slate-900">{{ formatCurrency(lead.estimated_value) }}</span>
-                                    <span class="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{{ lead.interest_fabric }}</span>
-                                    <span class="text-xs text-slate-300 ml-auto">#{{ lead.id }}</span>
+                                    <span class="text-xs text-slate-500">{{ lead.phone }}</span>
+                                    <span class="text-xs text-slate-300 ml-auto"></span>
                                 </div>
 
-                                <!-- ── Stage-specific sections ── -->
-
-                                <!-- INQUIRY: Add Note + Notes list -->
                                 <div v-if="lead.status === 'Inquiry'" class="mt-3 pt-3 border-t border-slate-50 space-y-2">
                                     <div class="flex flex-wrap gap-2">
                                         <button
@@ -414,13 +849,12 @@ const stageAccent = (status) => ({
                                         <div v-if="showNotes[lead.id]" class="mt-2 space-y-2 pl-3 border-l-2 border-slate-100">
                                             <div v-for="note in lead.notes" :key="note.id" class="bg-slate-50 rounded-xl p-3">
                                                 <p class="text-xs text-slate-700">{{ note.note }}</p>
-                                                <p class="text-[10px] text-slate-400 mt-1">{{ note.user.name }} · {{ new Date(note.created_at).toLocaleString() }}</p>
+                                                <p class="text-[10px] text-slate-400 mt-1">{{ note.user?.name }} · {{ new Date(note.created_at).toLocaleString() }}</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- NEGOTIATION: Schedule Interview + Interviews list -->
                                 <div v-if="lead.status === 'Negotiation'" class="mt-3 pt-3 border-t border-slate-50 space-y-2">
                                     <div class="flex flex-wrap gap-2">
                                         <button
@@ -446,13 +880,12 @@ const stageAccent = (status) => ({
                                                     <MapPin class="w-3 h-3 text-slate-400" /> {{ iv.location }}
                                                 </div>
                                                 <p v-if="iv.notes" class="text-xs text-slate-500 italic">{{ iv.notes }}</p>
-                                                <p class="text-[10px] text-slate-400">{{ iv.user.name }}</p>
+                                                <p class="text-[10px] text-slate-400">{{ iv.user?.name }}</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- APPROVAL SENT: file count -->
                                 <div v-if="lead.status === 'Approval Sent' && lead.approval_files?.length" class="mt-3 pt-3 border-t border-slate-50">
                                     <span class="inline-flex items-center gap-1.5 text-xs text-slate-500">
                                         <FileText class="w-3.5 h-3.5 text-slate-400" />
@@ -460,7 +893,6 @@ const stageAccent = (status) => ({
                                     </span>
                                 </div>
 
-                                <!-- CLOSED-WON: Convert to Client -->
                                 <div v-if="lead.status === 'Closed-Won'" class="mt-3 pt-3 border-t border-slate-50">
                                     <div class="flex items-center justify-between gap-3">
                                         <span class="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700">
@@ -476,7 +908,6 @@ const stageAccent = (status) => ({
                                     </div>
                                 </div>
 
-                                <!-- Date footer -->
                                 <p class="text-[10px] text-slate-300 mt-3 text-right">
                                     Created {{ new Date(lead.created_at).toLocaleDateString() }}
                                 </p>
@@ -487,47 +918,84 @@ const stageAccent = (status) => ({
             </div>
         </div>
 
-        <!-- ══════════════════════════════════════════
-             MODALS — shared shell pattern
-        ══════════════════════════════════════════ -->
         <Teleport to="body">
 
-            <!-- ── 1. Move Confirm ── -->
-            <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0" enter-to-class="opacity-100"
-                        leave-active-class="transition duration-150 ease-in"  leave-from-class="opacity-100"  leave-to-class="opacity-0">
-                <div v-if="showMoveConfirmModal" class="fixed inset-0 z-[140] flex items-end sm:items-center justify-center p-0 sm:p-4">
-                    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeAllModals"></div>
-                    <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="translate-y-4 sm:scale-95 opacity-0" enter-to-class="translate-y-0 sm:scale-100 opacity-100">
-                        <div v-if="showMoveConfirmModal" class="relative bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl overflow-hidden flex flex-col">
+            <Transition name="modal">
+                <div v-if="showCreateModal" class="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
+                    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="showCreateModal = false"></div>
+                    <Transition name="modal-content">
+                        <div v-if="showCreateModal" class="relative bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl max-h-[92vh] flex flex-col overflow-hidden">
                             <div class="flex justify-center pt-3 pb-1 sm:hidden"><div class="w-10 h-1 bg-slate-200 rounded-full"></div></div>
-                            <!-- Header -->
-                            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+                            
+                            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
                                 <div class="flex items-center gap-3">
                                     <div class="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center">
-                                        <MoveRight class="w-4 h-4 text-white" />
+                                        <Plus class="w-4 h-4 text-white" />
                                     </div>
                                     <div>
-                                        <h3 class="text-sm font-semibold text-slate-900">Confirm Stage Change</h3>
-                                        <p class="text-xs text-slate-400">{{ currentLead?.company_name }}</p>
+                                        <h3 class="text-sm font-semibold text-slate-900">New Lead</h3>
+                                        <p class="text-xs text-slate-400">Fill in the lead details</p>
                                     </div>
                                 </div>
-                                <button @click="closeAllModals" class="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-all">
+                                <button @click="showCreateModal = false" class="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-all">
                                     <X class="w-4 h-4" />
                                 </button>
                             </div>
-                            <!-- Body -->
-                            <div class="px-5 py-5">
-                                <div class="bg-slate-50 rounded-xl p-4 text-sm text-slate-700 leading-relaxed">
-                                    Move <span class="font-semibold text-slate-900">{{ currentLead?.company_name }}</span> from
-                                    <span class="font-semibold text-blue-600">{{ currentLead?.status }}</span> to
-                                    <span class="font-semibold text-amber-500">{{ pendingMoveNextStage }}</span>?
+                            
+                            <div class="flex-1 overflow-y-auto px-5 py-5 space-y-3">
+                                <div>
+                                    <label class="text-xs font-semibold text-slate-700 block mb-1.5">Company Name <span class="text-red-400">*</span></label>
+                                    <input
+                                        v-model="form.company_name"
+                                        type="text"
+                                        placeholder="Company name"
+                                        :class="['w-full border rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition', formErrors.company_name ? 'border-red-300 bg-red-50/30' : 'border-slate-200']"
+                                    />
+                                    <p v-if="formErrors.company_name" class="text-xs text-red-500 mt-1">{{ formErrors.company_name }}</p>
+                                </div>
+                                <div>
+                                    <label class="text-xs font-semibold text-slate-700 block mb-1.5">Contact Person <span class="text-red-400">*</span></label>
+                                    <input
+                                        v-model="form.contact_person"
+                                        type="text"
+                                        placeholder="Full name"
+                                        :class="['w-full border rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition', formErrors.contact_person ? 'border-red-300 bg-red-50/30' : 'border-slate-200']"
+                                    />
+                                    <p v-if="formErrors.contact_person" class="text-xs text-red-500 mt-1">{{ formErrors.contact_person }}</p>
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="text-xs font-semibold text-slate-700 block mb-1.5">Email <span class="text-red-400">*</span></label>
+                                        <input
+                                            v-model="form.email"
+                                            type="email"
+                                            placeholder="email@company.com"
+                                            :class="['w-full border rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition', formErrors.email ? 'border-red-300 bg-red-50/30' : 'border-slate-200']"
+                                        />
+                                        <p v-if="formErrors.email" class="text-xs text-red-500 mt-1">{{ formErrors.email }}</p>
+                                    </div>
+                                    <div>
+                                        <label class="text-xs font-semibold text-slate-700 block mb-1.5">Phone <span class="text-red-400">*</span></label>
+                                        <input
+                                            v-model="form.phone"
+                                            type="text"
+                                            placeholder="09123456789"
+                                            :class="['w-full border rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition', formErrors.phone ? 'border-red-300 bg-red-50/30' : 'border-slate-200']"
+                                        />
+                                        <p v-if="formErrors.phone" class="text-xs text-red-500 mt-1">{{ formErrors.phone }}</p>
+                                    </div>
                                 </div>
                             </div>
-                            <!-- Footer -->
-                            <div class="px-5 py-4 border-t border-slate-100 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
-                                <button @click="closeAllModals" class="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all">Cancel</button>
-                                <button @click="confirmMove" class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all">
-                                    <MoveRight class="w-4 h-4" /> Confirm Move
+                            
+                            <div class="px-5 py-4 border-t border-slate-100 flex-shrink-0 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
+                                <button @click="showCreateModal = false" class="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all">Cancel</button>
+                                <button
+                                    @click="submit"
+                                    :disabled="form.processing"
+                                    class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-all"
+                                >
+                                    <Plus class="w-4 h-4" />
+                                    {{ form.processing ? 'Creating…' : 'Create Lead' }}
                                 </button>
                             </div>
                         </div>
@@ -535,15 +1003,12 @@ const stageAccent = (status) => ({
                 </div>
             </Transition>
 
-            <!-- ── 2. Note Modal ── -->
-            <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0" enter-to-class="opacity-100"
-                        leave-active-class="transition duration-150 ease-in"  leave-from-class="opacity-100"  leave-to-class="opacity-0">
+            <Transition name="modal">
                 <div v-if="showNoteModal" class="fixed inset-0 z-[130] flex items-end sm:items-center justify-center p-0 sm:p-4">
                     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeAllModals"></div>
-                    <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="translate-y-4 sm:scale-95 opacity-0" enter-to-class="translate-y-0 sm:scale-100 opacity-100">
+                    <Transition name="modal-content">
                         <div v-if="showNoteModal" class="relative bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl overflow-hidden flex flex-col">
                             <div class="flex justify-center pt-3 pb-1 sm:hidden"><div class="w-10 h-1 bg-slate-200 rounded-full"></div></div>
-                            <!-- Header -->
                             <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
                                 <div class="flex items-center gap-3">
                                     <div class="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center">
@@ -558,18 +1023,15 @@ const stageAccent = (status) => ({
                                     <X class="w-4 h-4" />
                                 </button>
                             </div>
-                            <!-- Body -->
                             <div class="px-5 py-5">
                                 <label class="text-xs font-semibold text-slate-700 block mb-2">Note <span class="text-red-400">*</span></label>
                                 <textarea
                                     v-model="noteForm.note"
                                     rows="4"
                                     placeholder="Write your notes here..."
-                                    required
                                     class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none"
                                 ></textarea>
                             </div>
-                            <!-- Footer -->
                             <div class="px-5 py-4 border-t border-slate-100 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
                                 <button @click="closeAllModals" class="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all">Cancel</button>
                                 <button @click="addNote" :disabled="noteForm.processing || !noteForm.note.trim()"
@@ -582,15 +1044,12 @@ const stageAccent = (status) => ({
                 </div>
             </Transition>
 
-            <!-- ── 3. Interview Modal ── -->
-            <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0" enter-to-class="opacity-100"
-                        leave-active-class="transition duration-150 ease-in"  leave-from-class="opacity-100"  leave-to-class="opacity-0">
+            <Transition name="modal">
                 <div v-if="showInterviewModal" class="fixed inset-0 z-[130] flex items-end sm:items-center justify-center p-0 sm:p-4">
                     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeAllModals"></div>
-                    <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="translate-y-4 sm:scale-95 opacity-0" enter-to-class="translate-y-0 sm:scale-100 opacity-100">
+                    <Transition name="modal-content">
                         <div v-if="showInterviewModal" class="relative bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl overflow-hidden flex flex-col">
                             <div class="flex justify-center pt-3 pb-1 sm:hidden"><div class="w-10 h-1 bg-slate-200 rounded-full"></div></div>
-                            <!-- Header -->
                             <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
                                 <div class="flex items-center gap-3">
                                     <div class="w-8 h-8 rounded-xl bg-amber-400 flex items-center justify-center">
@@ -605,7 +1064,6 @@ const stageAccent = (status) => ({
                                     <X class="w-4 h-4" />
                                 </button>
                             </div>
-                            <!-- Body -->
                             <div class="px-5 py-5 space-y-3">
                                 <div>
                                     <label class="text-xs font-semibold text-slate-700 block mb-2">Date & Time <span class="text-red-400">*</span></label>
@@ -635,7 +1093,6 @@ const stageAccent = (status) => ({
                                     ></textarea>
                                 </div>
                             </div>
-                            <!-- Footer -->
                             <div class="px-5 py-4 border-t border-slate-100 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
                                 <button @click="closeAllModals" class="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all">Cancel</button>
                                 <button @click="scheduleInterview" :disabled="interviewForm.processing || !interviewForm.scheduled_at"
@@ -648,15 +1105,12 @@ const stageAccent = (status) => ({
                 </div>
             </Transition>
 
-            <!-- ── 4. Finalize Modal (Approval Sent) ── -->
-            <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0" enter-to-class="opacity-100"
-                        leave-active-class="transition duration-150 ease-in"  leave-from-class="opacity-100"  leave-to-class="opacity-0">
+            <Transition name="modal">
                 <div v-if="showFinalizeModal" class="fixed inset-0 z-[140] flex items-end sm:items-center justify-center p-0 sm:p-4">
                     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="closeAllModals"></div>
-                    <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="translate-y-4 sm:scale-95 opacity-0" enter-to-class="translate-y-0 sm:scale-100 opacity-100">
-                        <div v-if="showFinalizeModal" class="relative bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-3xl shadow-2xl max-h-[92vh] sm:max-h-[85vh] flex flex-col overflow-hidden">
+                    <Transition name="modal-content">
+                        <div v-if="showFinalizeModal" class="relative bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-3xl shadow-2xl max-h-[92vh] flex flex-col overflow-hidden">
                             <div class="flex justify-center pt-3 pb-1 sm:hidden"><div class="w-10 h-1 bg-slate-200 rounded-full"></div></div>
-                            <!-- Header -->
                             <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
                                 <div class="flex items-center gap-3">
                                     <div class="w-8 h-8 rounded-xl bg-amber-400 flex items-center justify-center">
@@ -671,17 +1125,14 @@ const stageAccent = (status) => ({
                                     <X class="w-4 h-4" />
                                 </button>
                             </div>
-                            <!-- Body -->
                             <div class="flex-1 overflow-y-auto px-5 py-5 space-y-4">
-                                <!-- Info banner -->
                                 <div class="bg-slate-50 border border-slate-100 rounded-xl p-4 text-sm text-slate-600 leading-relaxed">
                                     Complete the approval process for <span class="font-semibold text-slate-900">{{ currentLead?.company_name }}</span>.
                                 </div>
 
-                                <!-- File Upload -->
                                 <div>
                                     <label class="text-xs font-semibold text-slate-700 block mb-2">
-                                        Upload Approval File <span class="text-slate-300 font-normal">(optional, max 2MB)</span>
+                                        Upload Approval File <span class="text-slate-300 font-normal">(optional, max 5MB)</span>
                                     </label>
                                     <div class="border border-dashed border-slate-200 rounded-xl p-4 space-y-3">
                                         <input
@@ -702,7 +1153,6 @@ const stageAccent = (status) => ({
                                     </div>
                                 </div>
 
-                                <!-- Accept / Reject toggle -->
                                 <div>
                                     <label class="text-xs font-semibold text-slate-700 block mb-2">Decision <span class="text-red-400">*</span></label>
                                     <div class="grid grid-cols-2 gap-2">
@@ -731,7 +1181,6 @@ const stageAccent = (status) => ({
                                     </div>
                                 </div>
 
-                                <!-- Rejection reason -->
                                 <div v-if="finalizeAction === 'reject'">
                                     <label class="text-xs font-semibold text-slate-700 block mb-2">Reason for Rejection <span class="text-red-400">*</span></label>
                                     <textarea
@@ -742,7 +1191,6 @@ const stageAccent = (status) => ({
                                     ></textarea>
                                 </div>
                             </div>
-                            <!-- Footer -->
                             <div class="px-5 py-4 border-t border-slate-100 flex-shrink-0 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
                                 <button @click="closeAllModals" class="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all">Cancel</button>
                                 <button
@@ -762,15 +1210,12 @@ const stageAccent = (status) => ({
                 </div>
             </Transition>
 
-            <!-- ── 5. Client Conversion Modal ── -->
-            <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0" enter-to-class="opacity-100"
-                        leave-active-class="transition duration-150 ease-in"  leave-from-class="opacity-100"  leave-to-class="opacity-0">
+            <Transition name="modal">
                 <div v-if="showClientConversionModal" class="fixed inset-0 z-[130] flex items-end sm:items-center justify-center p-0 sm:p-4">
                     <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="showClientConversionModal = false"></div>
-                    <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="translate-y-4 sm:scale-95 opacity-0" enter-to-class="translate-y-0 sm:scale-100 opacity-100">
-                        <div v-if="showClientConversionModal" class="relative bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-3xl shadow-2xl max-h-[92vh] sm:max-h-[85vh] flex flex-col overflow-hidden">
+                    <Transition name="modal-content">
+                        <div v-if="showClientConversionModal" class="relative bg-white w-full sm:max-w-lg sm:rounded-2xl rounded-t-3xl shadow-2xl max-h-[92vh] flex flex-col overflow-hidden">
                             <div class="flex justify-center pt-3 pb-1 sm:hidden"><div class="w-10 h-1 bg-slate-200 rounded-full"></div></div>
-                            <!-- Header -->
                             <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
                                 <div class="flex items-center gap-3">
                                     <div class="w-8 h-8 rounded-xl bg-blue-600 flex items-center justify-center">
@@ -785,9 +1230,7 @@ const stageAccent = (status) => ({
                                     <X class="w-4 h-4" />
                                 </button>
                             </div>
-                            <!-- Body -->
                             <div class="flex-1 overflow-y-auto px-5 py-5 space-y-4">
-                                <!-- Info -->
                                 <div class="bg-blue-50 border border-blue-100 rounded-xl p-4 text-sm text-blue-800">
                                     Finalizing the partnership for <span class="font-semibold">{{ conversionForm.company_name }}</span>. Fill in the official business details below.
                                 </div>
@@ -809,9 +1252,9 @@ const stageAccent = (status) => ({
                                             v-model="conversionForm.tin_number"
                                             type="text"
                                             placeholder="000-000-000"
-                                            required
-                                            class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                                            :class="['w-full border rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition', conversionErrors.tin_number ? 'border-red-300 bg-red-50/30' : 'border-slate-200']"
                                         />
+                                        <p v-if="conversionErrors.tin_number" class="text-xs text-red-500 mt-1">{{ conversionErrors.tin_number }}</p>
                                     </div>
                                 </div>
                                 <div>
@@ -820,12 +1263,11 @@ const stageAccent = (status) => ({
                                         v-model="conversionForm.company_address"
                                         rows="3"
                                         placeholder="Complete business address"
-                                        required
-                                        class="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none"
+                                        :class="['w-full border rounded-xl px-4 py-3 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none', conversionErrors.company_address ? 'border-red-300 bg-red-50/30' : 'border-slate-200']"
                                     ></textarea>
+                                    <p v-if="conversionErrors.company_address" class="text-xs text-red-500 mt-1">{{ conversionErrors.company_address }}</p>
                                 </div>
                             </div>
-                            <!-- Footer -->
                             <div class="px-5 py-4 border-t border-slate-100 flex-shrink-0 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
                                 <button @click="showClientConversionModal = false" class="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all">Cancel</button>
                                 <button
@@ -842,116 +1284,6 @@ const stageAccent = (status) => ({
                 </div>
             </Transition>
 
-            <!-- ── 6. Create Deal Modal ── -->
-            <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0" enter-to-class="opacity-100"
-                        leave-active-class="transition duration-150 ease-in"  leave-from-class="opacity-100"  leave-to-class="opacity-0">
-                <div v-if="showCreateModal" class="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4">
-                    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="showCreateModal = false"></div>
-                    <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="translate-y-4 sm:scale-95 opacity-0" enter-to-class="translate-y-0 sm:scale-100 opacity-100">
-                        <div v-if="showCreateModal" class="relative bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-3xl shadow-2xl max-h-[92vh] sm:max-h-[85vh] flex flex-col overflow-hidden">
-                            <div class="flex justify-center pt-3 pb-1 sm:hidden"><div class="w-10 h-1 bg-slate-200 rounded-full"></div></div>
-                            <!-- Header -->
-                            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-8 h-8 rounded-xl bg-amber-400 flex items-center justify-center">
-                                        <Plus class="w-4 h-4 text-white" />
-                                    </div>
-                                    <div>
-                                        <h3 class="text-sm font-semibold text-slate-900">New Textile Deal</h3>
-                                        <p class="text-xs text-slate-400">Fill in the lead details</p>
-                                    </div>
-                                </div>
-                                <button @click="showCreateModal = false" class="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-all">
-                                    <X class="w-4 h-4" />
-                                </button>
-                            </div>
-                            <!-- Body -->
-                            <div class="flex-1 overflow-y-auto px-5 py-5 space-y-3">
-                                <div>
-                                    <label class="text-xs font-semibold text-slate-700 block mb-1.5">Company Name <span class="text-red-400">*</span></label>
-                                    <input
-                                        v-model="form.company_name"
-                                        type="text"
-                                        placeholder="Company name"
-                                        required
-                                        class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                                    />
-                                </div>
-                                <div>
-                                    <label class="text-xs font-semibold text-slate-700 block mb-1.5">Contact Person <span class="text-red-400">*</span></label>
-                                    <input
-                                        v-model="form.contact_person"
-                                        type="text"
-                                        placeholder="Full name"
-                                        required
-                                        class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                                    />
-                                </div>
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <div>
-                                        <label class="text-xs font-semibold text-slate-700 block mb-1.5">Email <span class="text-red-400">*</span></label>
-                                        <input
-                                            v-model="form.email"
-                                            type="email"
-                                            placeholder="email@company.com"
-                                            required
-                                            class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label class="text-xs font-semibold text-slate-700 block mb-1.5">Phone <span class="text-red-400">*</span></label>
-                                        <input
-                                            v-model="form.phone"
-                                            type="text"
-                                            placeholder="+63 000 0000"
-                                            required
-                                            class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                                        />
-                                    </div>
-                                </div>
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <div>
-                                        <label class="text-xs font-semibold text-slate-700 block mb-1.5">Estimated Value (₱) <span class="text-red-400">*</span></label>
-                                        <input
-                                            v-model="form.estimated_value"
-                                            type="number"
-                                            placeholder="0.00"
-                                            required
-                                            class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label class="text-xs font-semibold text-slate-700 block mb-1.5">Fabric Interest</label>
-                                        <select
-                                            v-model="form.interest_fabric"
-                                            class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                                        >
-                                            <option>Cotton</option>
-                                            <option>Wool</option>
-                                            <option>Nylon</option>
-                                            <option>Polyester</option>
-                                            <option>Silk</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                            <!-- Footer -->
-                            <div class="px-5 py-4 border-t border-slate-100 flex-shrink-0 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
-                                <button @click="showCreateModal = false" class="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all">Cancel</button>
-                                <button
-                                    @click="submit"
-                                    :disabled="form.processing"
-                                    class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-all"
-                                >
-                                    <Plus class="w-4 h-4" />
-                                    {{ form.processing ? 'Creating…' : 'Create Deal' }}
-                                </button>
-                            </div>
-                        </div>
-                    </Transition>
-                </div>
-            </Transition>
-
         </Teleport>
     </AuthenticatedLayout>
 </template>
@@ -959,4 +1291,15 @@ const stageAccent = (status) => ({
 <style scoped>
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+.modal-enter-active, .modal-leave-active { transition: opacity 0.2s ease; }
+.modal-enter-from, .modal-leave-to { opacity: 0; }
+
+.modal-content-enter-active { transition: all 0.2s ease-out; }
+.modal-content-leave-active { transition: all 0.15s ease-in; }
+.modal-content-enter-from { opacity: 0; transform: translateY(16px) scale(0.95); }
+.modal-content-leave-to { opacity: 0; transform: translateY(16px) scale(0.95); }
+@media (min-width: 640px) {
+    .modal-content-enter-from, .modal-content-leave-to { transform: scale(0.95); }
+}
 </style>

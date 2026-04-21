@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Applicant;
 use App\Models\Interview;
 use App\Models\User;
+use App\Models\PagePermission;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -18,6 +19,7 @@ class InterviewController extends Controller
 
     public function index()
     {
+        // Get applicants assigned to CRM for interview
         $applicants = Applicant::with('interview')
             ->where('status', 'Interview')
             ->where('assigned_module', 'CRM')
@@ -34,7 +36,24 @@ class InterviewController extends Controller
                 'notes' => $a->interview?->notes,
             ]);
 
-        $permissions = $this->getPagePermissionsForModule('CRM');
+        $user = auth()->user();
+        
+        // FORCE EDIT PERMISSION FOR MANAGER AND CEO
+        if ($user && ($user->role === 'CEO' || $user->role === 'manager')) {
+            $permissions = [
+                'dashboard' => 'edit',
+                'leads' => 'edit',
+                'interviews' => 'edit',
+                'trainees' => 'edit',
+                'approvals' => 'edit',
+                'customer_profiles' => 'edit',
+                'investigation' => 'edit',
+                'access_control' => 'edit',
+            ];
+        } else {
+            // Get permissions from trait for other roles
+            $permissions = $this->getPagePermissionsForModule('CRM');
+        }
 
         return Inertia::render('Dashboard/CRM/Interview', [
             'applicants' => $applicants,
@@ -42,8 +61,16 @@ class InterviewController extends Controller
         ]);
     }
 
+    // Rest of your methods remain the same...
     public function schedule(Request $request, $id)
     {
+        $user = auth()->user();
+        $canEdit = ($user && ($user->role === 'CEO' || $user->role === 'manager'));
+        
+        if (!$canEdit) {
+            return back()->with('error', 'You do not have permission to schedule interviews.');
+        }
+        
         $request->validate([
             'scheduled_at' => 'required|date',
             'interview_type' => 'required|string',
@@ -59,12 +86,25 @@ class InterviewController extends Controller
             $request->only('scheduled_at', 'interview_type', 'duration', 'interviewer', 'location', 'notes')
         );
 
-        return back()->with('message', 'Interview scheduled.');
+        return back()->with('message', 'Interview scheduled successfully.');
     }
 
     public function pass(Request $request, $id)
     {
+        $user = auth()->user();
+        $canEdit = ($user && ($user->role === 'CEO' || $user->role === 'manager'));
+        
+        if (!$canEdit) {
+            return back()->with('error', 'You do not have permission to mark applicants as passed.');
+        }
+        
         $applicant = Applicant::findOrFail($id);
+        
+        $existingUser = User::where('email', $applicant->email)->first();
+        if ($existingUser) {
+            return back()->with('error', 'A user with this email already exists in the system.');
+        }
+        
         $user = User::create([
             'name' => $applicant->first_name.' '.$applicant->last_name,
             'email' => $applicant->email,
@@ -76,31 +116,61 @@ class InterviewController extends Controller
             'employee_id' => $this->generateEmployeeId(),
         ]);
 
-        $applicant->update(['status' => 'Passed', 'archived' => false]);
+        $applicant->update(['status' => 'Passed', 'archived' => true]);
 
-        return back()->with('message', 'Applicant passed interview and became trainee.');
+        return back()->with('message', 'Applicant passed interview and became trainee. Password: password');
     }
 
     public function fail(Request $request, $id)
     {
-        $request->validate(['reason' => 'required|string']);
+        $user = auth()->user();
+        $canEdit = ($user && ($user->role === 'CEO' || $user->role === 'manager'));
+        
+        if (!$canEdit) {
+            return back()->with('error', 'You do not have permission to mark applicants as failed.');
+        }
+        
+        $request->validate(['reason' => 'required|string|min:5']);
         $applicant = Applicant::findOrFail($id);
-        $applicant->update(['status' => 'Failed Interview', 'archived' => true, 'rejection_reason' => $request->reason]);
-        return back()->with('message', 'Applicant failed interview.');
+        $applicant->update([
+            'status' => 'Failed Interview', 
+            'archived' => true, 
+            'rejection_reason' => $request->reason
+        ]);
+        
+        return back()->with('message', 'Applicant failed interview and has been archived.');
     }
 
     public function passToOtherModule(Request $request, $id)
     {
+        $user = auth()->user();
+        $canEdit = ($user && ($user->role === 'CEO' || $user->role === 'manager'));
+        
+        if (!$canEdit) {
+            return back()->with('error', 'You do not have permission to pass applicants to other modules.');
+        }
+        
         $request->validate(['module' => 'required|in:HRM,ECO,SCM,MAN,PROJ,FIN,LOG,IT']);
         $applicant = Applicant::findOrFail($id);
-        $applicant->update(['assigned_module' => $request->module, 'status' => 'Interview']);
-        return back()->with('message', "Applicant passed to {$request->module}.");
+        $applicant->update([
+            'assigned_module' => $request->module, 
+            'status' => 'Interview',
+            'archived' => false,
+        ]);
+        
+        if ($applicant->interview) {
+            $applicant->interview->delete();
+        }
+        
+        return back()->with('message', "Applicant has been passed to {$request->module} department for interview.");
     }
 
     private function generateEmployeeId()
     {
         $year = now()->year;
-        $last = User::where('employee_id', 'like', "MONTI-{$year}-CRM-%")->orderBy('employee_id', 'desc')->first();
+        $last = User::where('employee_id', 'like', "MONTI-{$year}-CRM-%")
+            ->orderBy('employee_id', 'desc')
+            ->first();
         $num = $last ? (int) substr($last->employee_id, -4) + 1 : 1;
         return sprintf('MONTI-%s-CRM-%04d', $year, $num);
     }

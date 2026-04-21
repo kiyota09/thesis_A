@@ -345,7 +345,7 @@ function updatePosition(userId, pos) {
         onConfirm: () => {
             router.post(route('ceo.access.updatePosition'), { user_id: userId, position: pos }, {
                 preserveScroll: true,
-                onSuccess: () => location.reload(),
+                
                 onError: (err) => showSuccess('Error: ' + (err.error || 'Could not update position.')),
             });
         },

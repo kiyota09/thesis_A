@@ -5,9 +5,11 @@ namespace App\Http\Controllers\man\Staff;
 use App\Models\Fabric;
 use App\Models\Machine;
 use App\Models\MachineReport;
+use App\Models\ManufacturingInventoryItem;
 use App\Models\SoftenerJob;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\DB;
 
 class DyeingFabricSoftenerController extends ManufacturingStaffController
 {
@@ -31,7 +33,7 @@ class DyeingFabricSoftenerController extends ManufacturingStaffController
 
     public function dyeingFabricSoftener()
     {
-        $fabrics = Fabric::with('machine')
+        $fabrics = Fabric::with('machine', 'salesOrder')
             ->where('status', 'softener')
             ->get();
 
@@ -39,39 +41,86 @@ class DyeingFabricSoftenerController extends ManufacturingStaffController
             ->where('status', 'available')
             ->get(['id', 'machine_no']);
 
+        // Fetch softener supplies from manufacturing inventory
+        $softenerSupplies = ManufacturingInventoryItem::with('material')
+            ->where('department', 'dyeing')
+            ->whereHas('material', fn($q) => $q->where('category', 'Supplies'))
+            ->where('status', '!=', 'depleted')
+            ->get()
+            ->map(fn($item) => [
+                'id' => $item->id,
+                'control_number' => $item->control_number,
+                'material_name' => $item->material->name ?? 'Unknown',
+                'remaining_quantity' => $item->remaining_quantity,
+                'unit' => $item->unit,
+            ]);
+
         return Inertia::render('Dashboard/MAN/Employee/DyeingFabricSoftener/DyeingFabricSoftener', [
             'fabrics' => $fabrics,
             'machines' => $machines,
+            'softenerSupplies' => $softenerSupplies,
         ]);
     }
 
     public function storeSoftener(Request $request)
     {
         $validated = $request->validate([
-            'fabric_id' => 'required|exists:fabrics,id',
+            'fabric_ids' => 'required|array|min:1',
+            'fabric_ids.*' => 'exists:fabrics,id',
             'machine_id' => 'required|exists:machines,id',
-            'softener_type' => 'required|string|max:255',
-            'softener_no' => 'required|string|max:255',
+            'softener_inventory_id' => 'required|exists:manufacturing_inventory_items,id',
+            'softener_used' => 'required|numeric|min:0.01',
             'remarks' => 'nullable|string',
         ]);
 
-        $fabric = Fabric::findOrFail($validated['fabric_id']);
-        $fabric->update(['status' => 'squeezer']); // after softener, goes to squeezer
+        DB::beginTransaction();
+        try {
+            $inventoryItem = ManufacturingInventoryItem::findOrFail($validated['softener_inventory_id']);
 
-        SoftenerJob::create([
-            'fabric_id' => $validated['fabric_id'],
-            'machine_id' => $validated['machine_id'],
-            'softener_type' => $validated['softener_type'],
-            'softener_no' => $validated['softener_no'],
-            'remarks' => $validated['remarks'],
-            'operator_id' => $this->staff()->id,
-            'shift' => $this->getShift(),
-            'code' => $this->generateCode('SOFT', SoftenerJob::class),
-            'processed_at' => now(),
-            'status' => 'softened',
-        ]);
+            // Check sufficient inventory
+            if ($inventoryItem->remaining_quantity < $validated['softener_used']) {
+                return back()->withErrors(['softener_used' => 'Insufficient softener quantity available.']);
+            }
 
-        return redirect()->back()->with('message', 'Softening recorded successfully.');
+            // Consume softener
+            $inventoryItem->decrement('remaining_quantity', $validated['softener_used']);
+            if ($inventoryItem->remaining_quantity <= 0) {
+                $inventoryItem->update(['status' => 'depleted']);
+            }
+
+            // Process each selected fabric
+            foreach ($validated['fabric_ids'] as $fabricId) {
+                $fabric = Fabric::findOrFail($fabricId);
+
+                // Ensure fabric is in correct status
+                if ($fabric->status !== 'softener') {
+                    continue;
+                }
+
+                // Create softener job
+                SoftenerJob::create([
+                    'fabric_id' => $fabric->id,
+                    'machine_id' => $validated['machine_id'],
+                    'softener_type' => $inventoryItem->material->name,
+                    'softener_no' => $inventoryItem->control_number,
+                    'remarks' => $validated['remarks'],
+                    'operator_id' => $this->staff()->id,
+                    'shift' => $this->getShift(),
+                    'code' => $this->generateCode('SOFT', SoftenerJob::class),
+                    'processed_at' => now(),
+                    'status' => 'softened',
+                ]);
+
+                // IMPORTANT: Do NOT change fabric status here.
+                // Fabric remains 'softener' until quality checker approves.
+            }
+
+            DB::commit();
+            return redirect()->back()->with('message', 'Softening recorded successfully. Awaiting quality check.');
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return redirect()->back()->with('error', 'Failed to process softener: ' . $e->getMessage());
+        }
     }
 
     public function reports()

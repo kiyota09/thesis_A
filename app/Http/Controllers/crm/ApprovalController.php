@@ -19,15 +19,33 @@ class ApprovalController extends Controller
         $pendingClients = Client::where('status', 'pending')->with('meetings')->get();
 
         $permissions = $this->getPagePermissionsForModule('CRM');
+        
+        // For the Approval page, we need to check if the 'approval' page has edit permission
+        // or if user is CEO (already handled in trait)
+        $approvalPermission = $permissions['approval'] ?? 'view';
+        
+        // Create a structured permissions object for the frontend
+        $frontendPermissions = [
+            'approvals' => $approvalPermission, // This matches what the Vue component expects
+            'module' => 'CRM',
+        ];
 
         return Inertia::render('Dashboard/CRM/Approval', [
             'pendingClients' => $pendingClients,
-            'permissions' => $permissions,
+            'permissions' => $frontendPermissions,
         ]);
     }
 
     public function addNote(Request $request, $id)
     {
+        // Check permission for approval page
+        $permissions = $this->getPagePermissionsForModule('CRM');
+        $canEdit = ($permissions['approval'] ?? 'view') === 'edit';
+        
+        if (!$canEdit) {
+            return back()->with('error', 'You do not have permission to add notes.');
+        }
+        
         $request->validate(['note' => 'required|string']);
 
         $client = Client::findOrFail($id);
@@ -39,6 +57,14 @@ class ApprovalController extends Controller
 
     public function scheduleMeeting(Request $request, $id)
     {
+        // Check permission for approval page
+        $permissions = $this->getPagePermissionsForModule('CRM');
+        $canEdit = ($permissions['approval'] ?? 'view') === 'edit';
+        
+        if (!$canEdit) {
+            return back()->with('error', 'You do not have permission to schedule meetings.');
+        }
+        
         $validated = $request->validate([
             'scheduled_at' => 'required|date',
             'meeting_type' => 'required|string',
@@ -61,6 +87,14 @@ class ApprovalController extends Controller
 
     public function updateMeetingStatus(Request $request, $meetingId)
     {
+        // Check permission for approval page
+        $permissions = $this->getPagePermissionsForModule('CRM');
+        $canEdit = ($permissions['approval'] ?? 'view') === 'edit';
+        
+        if (!$canEdit) {
+            return back()->with('error', 'You do not have permission to update meeting status.');
+        }
+        
         $meeting = CrmMeeting::findOrFail($meetingId);
         $meeting->update(['status' => $request->status]);
         return back()->with('message', 'Meeting status updated.');
@@ -68,6 +102,14 @@ class ApprovalController extends Controller
 
     public function accept($id)
     {
+        // Check permission for approval page
+        $permissions = $this->getPagePermissionsForModule('CRM');
+        $canEdit = ($permissions['approval'] ?? 'view') === 'edit';
+        
+        if (!$canEdit) {
+            return back()->with('error', 'You do not have permission to accept clients.');
+        }
+        
         $client = Client::findOrFail($id);
         $client->update(['status' => 'active']);
         return back()->with('message', 'Client approved and now active.');
@@ -75,6 +117,14 @@ class ApprovalController extends Controller
 
     public function reject(Request $request, $id)
     {
+        // Check permission for approval page
+        $permissions = $this->getPagePermissionsForModule('CRM');
+        $canEdit = ($permissions['approval'] ?? 'view') === 'edit';
+        
+        if (!$canEdit) {
+            return back()->with('error', 'You do not have permission to reject clients.');
+        }
+        
         $request->validate(['reason' => 'required|string']);
         $client = Client::findOrFail($id);
         $client->update(['status' => 'rejected', 'rejection_reason' => $request->reason]);

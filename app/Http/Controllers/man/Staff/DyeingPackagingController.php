@@ -2,9 +2,8 @@
 
 namespace App\Http\Controllers\man\Staff;
 
-use App\Models\FormJob;
+use App\Models\Fabric;
 use App\Models\Package;
-use App\Models\PackageItem;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
@@ -12,8 +11,11 @@ class DyeingPackagingController extends ManufacturingStaffController
 {
     public function index()
     {
-        $pendingCount = FormJob::whereDoesntHave('packageItems')->count();
-        $recentPackages = Package::with('items.formJob.product')
+        $pendingCount = Fabric::where('status', 'packed')
+            ->whereDoesntHave('packages')
+            ->count();
+
+        $recentPackages = Package::with('fabric')
             ->where('operator_id', $this->staff()->id)
             ->latest()
             ->take(10)
@@ -30,38 +32,42 @@ class DyeingPackagingController extends ManufacturingStaffController
 
     public function packaging()
     {
-        $formingJobs = FormJob::with(['ironJob.squeezerJob.softenerJob.fabric', 'product'])
-            ->whereDoesntHave('packageItems')
+        $fabrics = Fabric::with('salesOrder', 'machine', 'operator')
+            ->where('status', 'packed')
+            ->whereDoesntHave('packages')  // Exclude fabrics that already have a package
             ->get();
 
         return Inertia::render('Dashboard/MAN/Employee/DyeingPackaging/DyeingPackaging', [
-            'formingJobs' => $formingJobs,
+            'fabrics' => $fabrics,
         ]);
     }
 
     public function storePackage(Request $request)
     {
         $validated = $request->validate([
-            'items' => 'required|array',
-            'items.*.form_job_id' => 'required|exists:form_jobs,id',
-            'items.*.quantity' => 'required|integer|min:1',
+            'fabric_id' => 'required|exists:fabrics,id',
+            'quantity'  => 'required|integer|min:1',
+            'remarks'   => 'nullable|string',
         ]);
+
+        $fabric = Fabric::findOrFail($validated['fabric_id']);
+
+        // Ensure the fabric is still ready for packaging and not already packaged
+        if ($fabric->status !== 'packed' || $fabric->packages()->exists()) {
+            return back()->with('error', 'This fabric is no longer available for packaging.');
+        }
 
         $package = Package::create([
-            'code' => $this->generateCode('PACKAGE', Package::class),
-            'operator_id' => $this->staff()->id,
-            'shift' => $this->getShift(),
-            'packaged_at' => now(),
-            'status' => 'pending',
+            'code'          => $this->generateCode('PACKAGE', Package::class),
+            'operator_id'   => $this->staff()->id,
+            'shift'         => $this->getShift(),
+            'packaged_at'   => now(),
+            'status'        => 'pending',
+            'fabric_id'     => $fabric->id,
+            'quantity'      => $validated['quantity'],   // store the quantity
         ]);
 
-        foreach ($validated['items'] as $item) {
-            PackageItem::create([
-                'package_id' => $package->id,
-                'form_job_id' => $item['form_job_id'],
-                'quantity' => $item['quantity'],
-            ]);
-        }
+        // Fabric status remains 'packed' – the package existence prevents it from reappearing.
 
         return redirect()->back()->with('message', 'Package created successfully.');
     }

@@ -4,13 +4,14 @@ namespace App\Http\Controllers\man\Staff;
 
 use App\Models\DyeJob;
 use App\Models\Fabric;
-use App\Models\FormJob;
 use App\Models\IronJob;
 use App\Models\ManufacturingOrder;
 use App\Models\Package;
 use App\Models\SoftenerJob;
 use App\Models\SqueezerJob;
+use App\Models\WarehousePackage;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class CheckerQualityController extends ManufacturingStaffController
@@ -20,13 +21,12 @@ class CheckerQualityController extends ManufacturingStaffController
         $stats = [
             'pending_orders' => ManufacturingOrder::where('status', 'pending')->count(),
             'fabrics_pending' => Fabric::where('status', 'pending')->count(),
-            'dye_pending' => DyeJob::whereDoesntHave('fabric', function ($q) {
-                $q->where('status', 'dyeing');
-            })->count(),
-            'softener_pending' => SoftenerJob::where('status', 'softened')->count(),
-            'squeezer_pending' => SqueezerJob::whereDoesntHave('ironJob')->count(),
-            'iron_pending' => IronJob::whereDoesntHave('formJob')->count(),
-            'form_pending' => FormJob::whereDoesntHave('packageItems')->count(),
+            'dye_pending' => DyeJob::whereHas('fabric', fn($q) => $q->where('status', 'dyeing'))->count(),
+            'softener_pending' => SoftenerJob::whereHas('fabric', fn($q) => $q->where('status', 'softener'))
+                ->where('status', 'softened')
+                ->count(),
+            'squeezer_pending' => SqueezerJob::whereHas('softenerJob.fabric', fn($q) => $q->where('status', 'squeezer'))->count(),
+            'iron_pending' => IronJob::whereHas('squeezerJob.softenerJob.fabric', fn($q) => $q->where('status', 'iron'))->count(),
             'packages_pending' => Package::where('status', 'pending')->count(),
         ];
 
@@ -35,16 +35,12 @@ class CheckerQualityController extends ManufacturingStaffController
         ]);
     }
 
-    /**
-     * The main production page with tabs for each stage.
-     */
     public function production()
     {
         $orders = ManufacturingOrder::with(['purchaseOrder.client', 'salesOrder.client'])
             ->where('status', 'pending')
             ->get()
             ->map(function ($order) {
-                // Handle purchase order
                 if ($order->purchaseOrder) {
                     return [
                         'id' => $order->id,
@@ -54,9 +50,7 @@ class CheckerQualityController extends ManufacturingStaffController
                         'remaining_quantity' => $order->remaining_quantity,
                         'type' => 'purchase_order',
                     ];
-                }
-                // Handle sales order (job order)
-                elseif ($order->salesOrder) {
+                } elseif ($order->salesOrder) {
                     return [
                         'id' => $order->id,
                         'po_number' => $order->salesOrder->jo_number ?? 'JO-' . $order->salesOrder->id,
@@ -66,34 +60,50 @@ class CheckerQualityController extends ManufacturingStaffController
                         'type' => 'sales_order',
                     ];
                 }
-                // Fallback (should not happen)
                 return null;
             })
-            ->filter(); // remove null entries
+            ->filter();
 
-        $fabrics = Fabric::with('machine', 'operator')
+        $fabrics = Fabric::with('machine', 'operator', 'salesOrder')
             ->where('status', 'pending')
             ->orderBy('created_at')
             ->get();
 
-        $dyeJobs = DyeJob::with('fabric', 'machine', 'operator')
+        $dyeJobs = DyeJob::with('fabric.salesOrder', 'machine', 'operator')
+            ->whereHas('fabric', fn($q) => $q->where('status', 'dyeing'))
             ->get();
 
-        $softenerJobs = SoftenerJob::with('fabric', 'machine', 'operator', 'squeezerJob')
+        $softenerJobs = SoftenerJob::with('fabric.salesOrder', 'machine', 'operator', 'squeezerJob')
+            ->whereHas('fabric', fn($q) => $q->where('status', 'softener'))
+            ->where('status', 'softened')
             ->get();
 
-        $squeezerJobs = SqueezerJob::with('softenerJob.fabric', 'machine', 'operator', 'ironJob')
+        $squeezerJobs = SqueezerJob::with('softenerJob.fabric.salesOrder', 'machine', 'operator', 'ironJob')
+            ->whereHas('softenerJob.fabric', fn($q) => $q->where('status', 'squeezer'))
             ->get();
 
-        $ironJobs = IronJob::with('squeezerJob.softenerJob.fabric', 'operator', 'formJob')
+        $ironJobs = IronJob::with('squeezerJob.softenerJob.fabric.salesOrder', 'operator')
+            ->whereHas('squeezerJob.softenerJob.fabric', fn($q) => $q->where('status', 'iron'))
             ->get();
 
-        $formJobs = FormJob::with('ironJob.squeezerJob.softenerJob.fabric', 'product', 'operator', 'packageItems')
-            ->get();
-
-        $packages = Package::with('items.formJob.product', 'operator')
+        $packages = Package::with(['fabric.salesOrder.recipe.product', 'operator'])
             ->where('status', 'pending')
-            ->get();
+            ->get()
+            ->map(function ($pkg) {
+                $product = $pkg->fabric->salesOrder->recipe->product ?? null;
+                return [
+                    'id' => $pkg->id,
+                    'code' => $pkg->code,
+                    'quantity' => $pkg->quantity,
+                    'status' => $pkg->status,
+                    'product_name' => $product->name ?? 'Unknown Product',
+                    'product_sku' => $product->sku ?? '',
+                    'fabric_code' => $pkg->fabric->code ?? '',
+                    'yarn_type' => $pkg->fabric->yarn_type ?? '',
+                    'weight' => $pkg->fabric->weight ?? 0,
+                    'operator' => $pkg->operator->name ?? '',
+                ];
+            });
 
         return Inertia::render('Dashboard/MAN/Employee/CheckerQuality/Production', [
             'orders' => $orders,
@@ -102,7 +112,6 @@ class CheckerQualityController extends ManufacturingStaffController
             'softenerJobs' => $softenerJobs,
             'squeezerJobs' => $squeezerJobs,
             'ironJobs' => $ironJobs,
-            'formJobs' => $formJobs,
             'packages' => $packages,
         ]);
     }
@@ -112,9 +121,6 @@ class CheckerQualityController extends ManufacturingStaffController
     public function checkInventory($orderId)
     {
         $order = ManufacturingOrder::findOrFail($orderId);
-
-        // Placeholder inventory check logic
-        // Could be extended to check BOM materials for sales orders
         return redirect()->back()->with('message', 'Inventory checked. Available: 0 items.');
     }
 
@@ -123,7 +129,6 @@ class CheckerQualityController extends ManufacturingStaffController
         $order = ManufacturingOrder::findOrFail($orderId);
         $order->update(['status' => 'in_progress']);
 
-        // Optionally update the original order's status/queue
         if ($order->purchaseOrder && $order->purchaseOrder->queue) {
             $order->purchaseOrder->queue->update(['man_started_at' => now()]);
         }
@@ -145,7 +150,7 @@ class CheckerQualityController extends ManufacturingStaffController
         $fabric = Fabric::findOrFail($fabricId);
         $fabric->update(['status' => $validated['destination']]);
 
-        return redirect()->back()->with('message', 'Fabric passed to '.$validated['destination']);
+        return redirect()->back()->with('message', 'Fabric passed to ' . $validated['destination']);
     }
 
     // ========== Dye Actions ==========
@@ -154,6 +159,7 @@ class CheckerQualityController extends ManufacturingStaffController
     {
         $validated = $request->validate([
             'action' => 'required|in:quality,reject',
+            'rejection_reason' => 'required_if:action,reject|string|nullable|max:500',
         ]);
 
         $dye = DyeJob::findOrFail($dyeId);
@@ -161,15 +167,18 @@ class CheckerQualityController extends ManufacturingStaffController
 
         if ($validated['action'] === 'quality') {
             $fabric->update(['status' => 'softener']);
+            return redirect()->back()->with('message', 'Fabric passed to softener stage.');
         } else {
-            $fabric->update(['status' => 'rejected']);
-            // Optionally log rejection reason
+            $fabric->update([
+                'status' => 'rejected',
+                'rejection_action' => 'recolor',
+                'rejection_reason' => $validated['rejection_reason'] ?? null,
+            ]);
+            return redirect()->back()->with('message', 'Fabric rejected.');
         }
-
-        return redirect()->back()->with('message', 'Dye job processed.');
     }
 
-    // ========== Softener & Squeezer Actions ==========
+    // ========== Softener Actions ==========
 
     public function passSoftener(Request $request, $softenerId)
     {
@@ -178,26 +187,27 @@ class CheckerQualityController extends ManufacturingStaffController
         ]);
 
         $softener = SoftenerJob::findOrFail($softenerId);
+        $fabric = $softener->fabric;
 
         if ($validated['action'] === 'quality') {
-            $squeezer = $softener->squeezerJob;
-            if ($squeezer) {
-                $softener->fabric->update(['status' => 'iron']);
-            }
+            $fabric->update(['status' => 'squeezer']);
+            return redirect()->back()->with('message', 'Fabric passed to squeezer.');
         } else {
+            $fabric->update(['status' => 'softener']);
             $softener->update(['status' => 'resoften']);
-            $softener->fabric->update(['status' => 'softener']);
+            return redirect()->back()->with('message', 'Fabric sent back for re-softening.');
         }
-
-        return redirect()->back()->with('message', 'Softener processed.');
     }
+
+    // ========== Squeezer Actions ==========
 
     public function passSqueezer(Request $request, $squeezerId)
     {
         $squeezer = SqueezerJob::findOrFail($squeezerId);
-        // Default action: pass to ironing
-        // Could be expanded with validation
-        return redirect()->back()->with('message', 'Squeezer processed.');
+        $fabric = $squeezer->softenerJob->fabric;
+        $fabric->update(['status' => 'iron']);
+
+        return redirect()->back()->with('message', 'Fabric passed to ironing stage.');
     }
 
     // ========== Iron Actions ==========
@@ -205,47 +215,17 @@ class CheckerQualityController extends ManufacturingStaffController
     public function passIron(Request $request, $ironId)
     {
         $validated = $request->validate([
-            'action' => 'required|in:form,pack',
+            'action' => 'required|in:pack',
         ]);
 
         $iron = IronJob::findOrFail($ironId);
+        $fabric = $iron->squeezerJob->softenerJob->fabric;
 
-        if ($validated['action'] === 'form') {
-            $iron->fabric()->update(['status' => 'forming']);
-        } else {
-            $iron->fabric()->update(['status' => 'packed']);
+        if ($validated['action'] === 'pack') {
+            $fabric->update(['status' => 'packed']);
         }
 
-        return redirect()->back()->with('message', 'Ironing processed.');
-    }
-
-    // ========== Form Actions ==========
-
-    public function packForm(Request $request, $formId)
-    {
-        $validated = $request->validate([
-            'quantity' => 'required|integer|min:1',
-        ]);
-
-        $form = FormJob::findOrFail($formId);
-        $form->update(['status' => 'packed']);
-
-        return redirect()->back()->with('message', 'Form marked for packaging.');
-    }
-
-    public function rejectForm(Request $request, $formId)
-    {
-        $validated = $request->validate([
-            'reason' => 'required|string',
-        ]);
-
-        $form = FormJob::findOrFail($formId);
-        $form->update([
-            'status' => 'rejected',
-            'remarks' => $validated['reason'],
-        ]);
-
-        return redirect()->back()->with('message', 'Form rejected.');
+        return redirect()->back()->with('message', 'Fabric packed successfully.');
     }
 
     // ========== Package Actions ==========
@@ -274,5 +254,38 @@ class CheckerQualityController extends ManufacturingStaffController
         } else {
             return redirect()->back()->with('error', 'Package quantity exceeds remaining order quantity.');
         }
+    }
+
+    /**
+     * Push a manufacturing package to logistics (creates a WarehousePackage).
+     */
+    public function pushToLogistics($packageId)
+    {
+        $package = Package::with('fabric.salesOrder.recipe.product')->findOrFail($packageId);
+
+        if ($package->status === 'delivered') {
+            return back()->with('error', 'Package already sent to logistics.');
+        }
+
+        $product = $package->fabric->salesOrder->recipe->product ?? null;
+        if (!$product) {
+            return back()->with('error', 'No product associated with this package.');
+        }
+
+        DB::transaction(function () use ($package, $product) {
+            WarehousePackage::create([
+                'package_number'         => $package->code,
+                'manufacturing_order_id' => $package->manufacturing_order_id,
+                'product_id'             => $product->id,
+                'quantity'               => $package->quantity,
+                'status'                 => 'pushed_to_logistics',
+                'pushed_at'              => now(),
+                'pushed_by'              => auth()->id(),
+            ]);
+
+            $package->update(['status' => 'delivered']);
+        });
+
+        return back()->with('message', 'Package sent to logistics.');
     }
 }

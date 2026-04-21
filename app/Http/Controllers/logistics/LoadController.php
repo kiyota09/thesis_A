@@ -15,6 +15,7 @@ class LoadController extends Controller
         $packages = WarehousePackage::where('status', 'pushed_to_logistics')
             ->with(['product', 'manufacturingOrder'])
             ->get();
+
         return inertia('Dashboard/Logistics/Load', ['packages' => $packages]);
     }
 
@@ -27,13 +28,15 @@ class LoadController extends Controller
 
         DB::transaction(function () use ($request) {
             $packages = WarehousePackage::whereIn('id', $request->package_ids)->get();
+
             foreach ($packages as $package) {
                 $package->update(['status' => 'dispatched']);
-                // Create a delivery record per package? Or group by? For simplicity, create one delivery per package
+
                 $delivery = Delivery::create([
                     'delivery_number' => 'DLV-' . strtoupper(uniqid()),
                     'status' => 'pending',
                 ]);
+
                 $delivery->packages()->attach($package->id);
             }
         });

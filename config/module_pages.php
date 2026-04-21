@@ -3,9 +3,9 @@
 return [
     'hrm' => [
         'dashboard'    => 'Dashboard',
-        'employees'    => 'Employees',
+        'employee'    => 'Employees',
         'applications' => 'Applications',
-        'interview'    => 'Interview',
+        'interview'    => 'Interviews',
         'trainee'      => 'Trainee',
         'onboarding'   => 'Onboarding',
         'reject'       => 'Rejected',
@@ -13,4 +13,15 @@ return [
         'analytics'    => 'Analytics',
         'access'       => 'Access Control',
     ],
+    'crm' => [
+        'dashboard'    => 'Dashboard',
+        'leads'        => 'Leads',
+        'contacts'     => 'Contacts',
+        'deals'        => 'Deals',
+        'activities'   => 'Activities',
+        'reports'      => 'Reports',
+        'interviews'   => 'Interviews',
+        'approvals'    => 'Approvals',
+    ],
+    
 ];

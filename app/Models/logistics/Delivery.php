@@ -2,20 +2,29 @@
 
 namespace App\Models\logistics;
 
-use App\Models\warehouse\WarehousePackage;
+use App\Models\WarehousePackage;
 use Illuminate\Database\Eloquent\Model;
 
 class Delivery extends Model
 {
     protected $fillable = [
-        'delivery_number', 'truck_id', 'driver_id', 'conductor1_id', 'conductor2_id',
-        'route_id', 'status', 'scheduled_departure', 'actual_departure', 'arrival_time', 'notes'
+        'delivery_number',
+        'truck_id',
+        'driver_id',
+        'conductor1_id',
+        'conductor2_id',
+        'route_id',
+        'status',
+        'scheduled_departure',
+        'actual_departure',
+        'arrival_time',
+        'notes'
     ];
 
     protected $casts = [
         'scheduled_departure' => 'datetime',
-        'actual_departure' => 'datetime',
-        'arrival_time' => 'datetime',
+        'actual_departure'    => 'datetime',
+        'arrival_time'        => 'datetime',
     ];
 
     public function truck()

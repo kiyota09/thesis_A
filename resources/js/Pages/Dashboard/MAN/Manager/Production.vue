@@ -1,57 +1,47 @@
 <script setup>
 import { ref } from 'vue';
-import { router, usePage } from '@inertiajs/vue3';
+import { router } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Package, ClipboardList, ArrowRightCircle, X, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-vue-next';
+import { Package, ClipboardList, ArrowRightCircle, X, ChevronDown, ChevronUp } from 'lucide-vue-next';
 
 const props = defineProps({
     orders: Array,
 });
 
-// ── Custom confirm modal (replaces native confirm()) ──
-const showConfirmModal  = ref(false);
-const pendingOrder      = ref(null);
-const expandedOrder     = ref(null); // for mobile item accordion
-const isSubmitting      = ref(false); // prevent double click
-
-// Show flash message if exists (from Laravel redirect)
-const page = usePage();
-if (page.props.flash?.message) {
-    alert(page.props.flash.message);
-}
+// ── Confirm modal state ──────────────────────────────────────────────────
+const showConfirmModal = ref(false);
+const pendingOrder     = ref(null);
+const expandedOrder    = ref(null);
+const isSubmitting     = ref(false);
 
 const openConfirm = (order) => {
-    pendingOrder.value = order;
+    pendingOrder.value     = order;
     showConfirmModal.value = true;
 };
 
 const closeConfirm = () => {
-    if (isSubmitting.value) return;
     showConfirmModal.value = false;
-    pendingOrder.value = null;
+    pendingOrder.value     = null;
+    isSubmitting.value     = false;
 };
 
 const confirmForward = () => {
     if (!pendingOrder.value || isSubmitting.value) return;
     isSubmitting.value = true;
 
-    router.post(route('man.manager.forward-to-checker', pendingOrder.value.id), {
-        type: pendingOrder.value.type,
-    }, {
-        onSuccess: () => {
-            alert(`Order ${pendingOrder.value.order_number} has been forwarded to Quality Checker.`);
-            closeConfirm();
-            // Optional: remove order from local list to avoid double send before redirect
-            // But redirect will reload the page anyway.
-        },
-        onError: (errors) => {
-            alert('Failed to forward order. Please try again.');
-            console.error(errors);
-        },
-        onFinish: () => {
-            isSubmitting.value = false;
-        },
-    });
+    // Capture values BEFORE closing (closing nulls pendingOrder)
+    const orderId   = pendingOrder.value.id;
+    const orderType = pendingOrder.value.type;
+
+    // ── KEY FIX: close the modal IMMEDIATELY on click ──
+    // Don't wait for onSuccess — modal is gone the instant the button is pressed.
+    closeConfirm();
+
+    router.post(
+        route('man.manager.forward-to-checker', orderId),
+        { type: orderType },
+        { preserveScroll: true }
+    );
 };
 
 const toggleItems = (id) => {
@@ -178,8 +168,7 @@ const orderDot = (type) => type === 'sales_order' ? 'bg-amber-400' : 'bg-blue-50
                                 <td class="px-5 py-4 text-right">
                                     <button
                                         @click="openConfirm(order)"
-                                        :disabled="isSubmitting"
-                                        class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        class="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition-colors active:scale-95"
                                     >
                                         <ArrowRightCircle class="w-3.5 h-3.5" />
                                         Start Production
@@ -257,8 +246,7 @@ const orderDot = (type) => type === 'sales_order' ? 'bg-amber-400' : 'bg-blue-50
                         <div class="px-4 pb-4">
                             <button
                                 @click="openConfirm(order)"
-                                :disabled="isSubmitting"
-                                class="w-full inline-flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                                class="w-full inline-flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition-colors active:scale-95"
                             >
                                 <ArrowRightCircle class="w-4 h-4" />
                                 Start Production
@@ -317,7 +305,6 @@ const orderDot = (type) => type === 'sales_order' ? 'bg-amber-400' : 'bg-blue-50
                                 </div>
                                 <button
                                     @click="closeConfirm"
-                                    :disabled="isSubmitting"
                                     class="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-all"
                                 >
                                     <X class="w-4 h-4" />
@@ -347,29 +334,19 @@ const orderDot = (type) => type === 'sales_order' ? 'bg-amber-400' : 'bg-blue-50
                                         <p class="text-xs font-semibold text-slate-800">{{ pendingOrder?.total_quantity }}</p>
                                     </div>
                                 </div>
-
-                                <!-- Alert note -->
-                                <div class="flex gap-2.5 items-start bg-amber-50 border border-amber-100 rounded-xl p-3.5">
-                                    <AlertTriangle class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                                    <p class="text-xs text-amber-800 leading-relaxed">
-                                        This action will move the order out of the production queue and cannot be undone.
-                                    </p>
-                                </div>
                             </div>
 
                             <!-- Footer -->
                             <div class="px-5 py-4 border-t border-slate-100 flex flex-col-reverse sm:flex-row gap-2 sm:justify-end">
                                 <button
                                     @click="closeConfirm"
-                                    :disabled="isSubmitting"
                                     class="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-slate-600 border border-slate-200 hover:border-slate-300 rounded-xl hover:bg-slate-50 transition-all"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     @click="confirmForward"
-                                    :disabled="isSubmitting"
-                                    class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all active:scale-95 disabled:opacity-50"
+                                    class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all active:scale-95"
                                 >
                                     <ArrowRightCircle class="w-4 h-4" />
                                     Confirm & Forward

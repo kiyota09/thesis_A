@@ -24,11 +24,14 @@ class CheckManufacturingManagerAccess
         // Allow if:
         // 1. User is a regular manager (position = manager)
         // 2. User is a manufacturing supervisor
-        // 3. User is Secretary or General Manager AND has 'MAN' in granted_modules
-        if ($user->position === 'manager' ||
+        // 3. User is CEO, Secretary, or General Manager with MAN module access
+        if (
+            $user->position === 'manager' ||
             $user->is_manufacturing_supervisor ||
-            (in_array($user->position, ['secretary', 'general_manager']) && 
-             in_array('MAN', $user->granted_modules ?? []))) {
+            $user->role === 'CEO' ||  // ← ADD THIS LINE
+            (in_array($user->position, ['secretary', 'general_manager']) &&
+                in_array('MAN', $user->granted_modules ?? []))
+        ) {
             return $next($request);
         }
 

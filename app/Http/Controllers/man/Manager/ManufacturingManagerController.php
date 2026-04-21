@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\man\Manager;
 
 use App\Http\Controllers\Controller;
+use App\Models\Fabric;
 use App\Models\FormJob;
 use App\Models\Machine;
 use App\Models\ManufacturingOrder;
@@ -10,6 +11,8 @@ use App\Models\Package;
 use App\Models\PurchaseOrder;
 use App\Models\SalesOrder;
 use App\Models\User;
+use App\Models\Warehouse;
+use App\Models\WarehouseReject;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -147,36 +150,131 @@ class ManufacturingManagerController extends Controller
         ]);
     }
 
+    /**
+     * Show rejected items: both fabrics and form jobs.
+     */
     public function rejected()
     {
         $user = $this->getCurrentManager();
-        $rejectedForms = FormJob::where('status', 'rejected')
-            ->with(['ironJob.squeezerJob.softenerJob.fabric', 'product', 'operator']);
 
+        // Rejected Fabrics
+        $rejectedFabricsQuery = Fabric::with('salesOrder')
+            ->where('status', 'rejected');
+
+        // Apply supervisor filtering if applicable
         if ($user->is_manufacturing_supervisor && $user->supervisor_department) {
             $supervisedRoles = $user->supervised_roles;
-            $rejectedForms->whereHas('operator', function ($q) use ($supervisedRoles) {
+            $rejectedFabricsQuery->whereHas('operator', function ($q) use ($supervisedRoles) {
                 $q->whereIn('manufacturing_role', $supervisedRoles);
             });
         }
 
-        $rejectedForms = $rejectedForms->latest()->get()
+        $rejectedFabrics = $rejectedFabricsQuery->latest()->get()->map(function ($fabric) {
+            return [
+                'id' => $fabric->id,
+                'code' => $fabric->code,
+                'yarn_type' => $fabric->yarn_type,
+                'weight' => $fabric->weight,
+                'rejection_reason' => $fabric->rejection_reason,
+                'rejection_action' => $fabric->rejection_action,
+                'rejected_at' => $fabric->updated_at,
+                'sales_order' => $fabric->salesOrder ? [
+                    'jo_number' => $fabric->salesOrder->jo_number,
+                    'color' => $fabric->salesOrder->color,
+                ] : null,
+            ];
+        });
+
+        // Rejected Form Jobs (existing logic)
+        $rejectedFormsQuery = FormJob::where('status', 'rejected')
+            ->with(['ironJob.squeezerJob.softenerJob.fabric', 'product', 'operator']);
+
+        if ($user->is_manufacturing_supervisor && $user->supervisor_department) {
+            $supervisedRoles = $user->supervised_roles;
+            $rejectedFormsQuery->whereHas('operator', function ($q) use ($supervisedRoles) {
+                $q->whereIn('manufacturing_role', $supervisedRoles);
+            });
+        }
+
+        $rejectedForms = $rejectedFormsQuery->latest()->get()
             ->map(function ($form) {
                 return [
                     'id' => $form->id,
                     'code' => $form->code,
-                    'product_name' => $form->product->name,
+                    'product_name' => $form->product->name ?? 'Unknown',
                     'quantity' => $form->quantity,
                     'rejected_at' => $form->updated_at,
-                    'rejected_by' => $form->operator->name,
+                    'rejected_by' => $form->operator->name ?? 'N/A',
                     'fabric_code' => $form->ironJob->squeezerJob->softenerJob->fabric->code ?? null,
                     'reason' => $form->remarks ?? 'No reason provided',
                 ];
             });
 
+        // Get warehouses for total reject modal
+        $warehouses = Warehouse::select('id', 'name', 'location')->get();
+
         return Inertia::render('Dashboard/MAN/Manager/Rejected', [
-            'rejectedItems' => $rejectedForms,
+            'rejectedFabrics' => $rejectedFabrics,
+            'rejectedForms' => $rejectedForms,
+            'warehouses' => $warehouses,
         ]);
+    }
+
+    /**
+     * Recolor a rejected fabric (send back to dyeing stage).
+     */
+    public function recolorFabric($fabricId)
+    {
+        $fabric = Fabric::findOrFail($fabricId);
+        
+        if ($fabric->status !== 'rejected') {
+            return back()->with('error', 'Fabric is not in rejected state.');
+        }
+
+        $fabric->update([
+            'status' => 'dyeing',
+            'rejection_action' => 'recolor',
+        ]);
+
+        return redirect()->back()->with('message', 'Fabric sent back for recoloring.');
+    }
+
+    /**
+     * Totally reject a fabric and send to warehouse as rejected material.
+     */
+    public function rejectFabricTotally(Request $request, $fabricId)
+    {
+        $fabric = Fabric::findOrFail($fabricId);
+        
+        if ($fabric->status !== 'rejected') {
+            return back()->with('error', 'Fabric is not in rejected state.');
+        }
+
+        $validated = $request->validate([
+            'warehouse_id' => 'required|exists:warehouses,id',
+        ]);
+
+        DB::transaction(function () use ($fabric, $validated) {
+            // Update fabric
+            $fabric->update([
+                'rejection_action' => 'total',
+                'status' => 'warehouse_rejected', // or keep 'rejected' but mark action
+            ]);
+
+            // Create warehouse reject record
+            WarehouseReject::create([
+                'rejectable_type' => Fabric::class,
+                'rejectable_id' => $fabric->id,
+                'source' => 'manufacturing',
+                'warehouse_id' => $validated['warehouse_id'],
+                'quantity' => $fabric->weight,
+                'unit' => 'kg',
+                'reason' => $fabric->rejection_reason ?? 'Rejected from manufacturing',
+                'status' => 'pending_return',
+            ]);
+        });
+
+        return redirect()->back()->with('message', 'Fabric sent to warehouse as rejected material.');
     }
 
     /**

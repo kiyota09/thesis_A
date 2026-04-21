@@ -13,11 +13,13 @@ class Package extends Model
         'packaged_at',
         'status',
         'manufacturing_order_id',
+        'fabric_id',
+        'quantity',      // added
     ];
 
     protected $casts = [
         'packaged_at' => 'datetime',
-        'status' => 'string',
+        'status'      => 'string',
     ];
 
     public function operator()
@@ -33,5 +35,13 @@ class Package extends Model
     public function items()
     {
         return $this->hasMany(PackageItem::class);
+    }
+
+    /**
+     * Get the fabric that was packaged (if any).
+     */
+    public function fabric()
+    {
+        return $this->belongsTo(Fabric::class);
     }
 }
