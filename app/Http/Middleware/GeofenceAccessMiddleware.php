@@ -1,0 +1,70 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use App\Models\CeoLocation; // Ensure correct path to your model
+use Symfony\Component\HttpFoundation\Response;
+
+class GeofenceAccessMiddleware
+{
+    public function handle(Request $request, Closure $next): Response
+    {
+        // 1. CHECK ROLE: THE CEO BYPASS
+        // If the user is a CEO, they can access from any location or IP.
+        if ($request->user() && $request->user()->role === 'CEO') {
+            return $next($request);
+        }
+
+        // Fetch the authorized safe zone for this user
+        $safeZone = CeoLocation::where('user_id', auth()->id())->latest()->first();
+
+        // If no safe zone is set, we block access for security
+        if (!$safeZone) {
+            return response()->json(['message' => 'Security Error: No authorized zone defined.'], 403);
+        }
+
+        // 2. CHECK GPS: THE PRIMARY VALIDATION
+        $currentLat = $request->header('X-User-Lat');
+        $currentLng = $request->header('X-User-Lng');
+
+        if ($currentLat && $currentLng) {
+            $distance = $this->calculateDistance(
+                $safeZone->latitude, $safeZone->longitude,
+                $currentLat, $currentLng
+            );
+
+            if ($distance <= $safeZone->range_radius) {
+                return $next($request); // GPS Validated
+            }
+        }
+
+        // 3. CHECK IP: THE FALLBACK VALIDATION
+        // If GPS is missing or outside range, check if they are on the warehouse Wi-Fi
+        $userIp = $request->ip();
+        $officeIp = config('app.office_ip'); // We define this in config/app.php
+
+        if ($userIp === $officeIp) {
+            return $next($request); // Network Validated
+        }
+
+        // 4. DENY: BOTH FAILED
+        return response()->json([
+            'message' => 'Access Denied: You must be at the warehouse or connected to the office network.',
+            'debug_info' => [
+                'reason' => 'GPS out of range or sensor timeout AND IP mismatch.',
+                'detected_ip' => $userIp
+            ]
+        ], 403);
+    }
+
+    private function calculateDistance($lat1, $lon1, $lat2, $lon2)
+    {
+        $earthRadius = 6371000;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLon = deg2rad($lon2 - $lon1);
+        $a = sin($dLat / 2) * sin($dLat / 2) + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLon / 2) * sin($dLon / 2);
+        return $earthRadius * (2 * atan2(sqrt($a), sqrt(1 - $a)));
+    }
+}

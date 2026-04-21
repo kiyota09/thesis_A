@@ -1,0 +1,154 @@
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Symfony\Component\HttpFoundation\Response;
+
+class CheckPagePermission
+{
+    /**
+     * Handle an incoming request.
+     *
+     * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
+     * @param  string  $page  The page identifier (e.g., 'dashboard', 'employees')
+     * @param  string  $requiredLevel  Required permission level: 'view' or 'edit'
+     */
+    public function handle(Request $request, Closure $next, string $page, string $requiredLevel = 'view'): Response
+    {
+        $user = Auth::user();
+
+        if (!$user) {
+            abort(403, 'Unauthorized.');
+        }
+
+        // CEO bypasses all checks
+        if ($user->role === 'CEO') {
+            return $next($request);
+        }
+
+        // Secretaries and General Managers have full access to their root module
+        if (in_array($user->position, ['secretary', 'general_manager'])) {
+            $module = $this->detectModule($request);
+            $rootModule = $this->getRootModuleForUser($user);
+
+            if ($module && $rootModule && strtoupper($module) === $rootModule) {
+                // Allow full access to all pages within their root module
+                return $next($request);
+            }
+        }
+
+        // Fallback: HRM staff can always view the dashboard (legacy support)
+        if ($page === 'dashboard' && $user->role === 'HRM' && $user->position === 'staff') {
+            return $next($request);
+        }
+
+        // Determine the module from the route name or URI
+        $module = $this->detectModule($request);
+
+        // If no module could be detected, deny access (safety)
+        if (!$module) {
+            abort(403, 'Could not determine module for permission check.');
+        }
+
+        // Get the user's permission for this page (from page_permissions table)
+        $permission = $user->pagePermissions()
+            ->where('module', $module)
+            ->where('page', $page)
+            ->first();
+
+        $level = $permission ? $permission->permission_level : null;
+
+        // If no permission, deny access
+        if (!$level) {
+            abort(403, "You do not have permission to access the '{$page}' page in the {$module} module.");
+        }
+
+        // Check required level
+        if ($requiredLevel === 'edit' && $level !== 'edit') {
+            abort(403, "You need edit permission for the '{$page}' page in the {$module} module.");
+        }
+
+        return $next($request);
+    }
+
+    /**
+     * Detect the module name from the request URI or route name.
+     *
+     * @param \Illuminate\Http\Request $request
+     * @return string|null
+     */
+    protected function detectModule(Request $request): ?string
+    {
+        $path = $request->path();
+        $routeName = $request->route() ? $request->route()->getName() : '';
+
+        // 1. Try route name (first segment before dot)
+        if ($routeName) {
+            $parts = explode('.', $routeName);
+            $firstPart = strtoupper($parts[0] ?? '');
+            if ($this->isValidModule($firstPart)) {
+                return $firstPart;
+            }
+        }
+
+        // 2. Check for /dashboard/{module} pattern
+        if (preg_match('#^dashboard/(hrm|crm|man|log|eco|ord|scm|war|inv|pro|wrf|fin|proj|it|ceo)#i', $path, $matches)) {
+            return strtoupper($matches[1]);
+        }
+
+        // 3. Check for direct module prefix (e.g., /hrm/...)
+        if (preg_match('#^(hrm|crm|man|log|eco|ord|scm|war|inv|pro|wrf|fin|proj|it|ceo)/#i', $path, $matches)) {
+            return strtoupper($matches[1]);
+        }
+
+        // 4. Special case for CEO access routes
+        if (str_starts_with($path, 'dashboard/ceo')) {
+            return 'CEO';
+        }
+
+        return null;
+    }
+
+    /**
+     * Check if a string is a valid module identifier.
+     *
+     * @param string $module
+     * @return bool
+     */
+    protected function isValidModule(string $module): bool
+    {
+        $validModules = [
+            'HRM', 'CRM', 'MAN', 'LOG', 'ECO', 'ORD', 'SCM',
+            'WAR', 'INV', 'PRO', 'WRF', 'FIN', 'PROJ', 'IT', 'CEO'
+        ];
+        return in_array($module, $validModules);
+    }
+
+    /**
+     * Get the root module for a secretary or general manager.
+     * Mirrors the logic in CeoAccessController.
+     *
+     * @param \App\Models\User $user
+     * @return string|null
+     */
+    protected function getRootModuleForUser($user): ?string
+    {
+        $coreModules = ['HRM', 'CRM', 'MAN', 'LOG'];
+
+        if ($user->is_manufacturing_supervisor) {
+            return 'MAN';
+        }
+
+        $roleUpper = strtoupper($user->role);
+        foreach ($coreModules as $core) {
+            if (str_contains($roleUpper, $core)) {
+                return $core;
+            }
+        }
+
+        return null;
+    }
+}
