@@ -348,7 +348,8 @@ Route::prefix('dashboard/workforce')->name('workforce.')->middleware(['auth', 'v
     Route::post('/absent/{id}/suspend', [AbsentController::class, 'suspend'])->name('absent.suspend');
     Route::get('/access', [WorkforceAccessController::class, 'index'])->name('access');
     Route::post('/access/update', [WorkforceAccessController::class, 'update'])->name('access.update');
-});
+
+    });
 
 /*
 |--------------------------------------------------------------------------
